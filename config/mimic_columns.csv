@@ -1,0 +1,261 @@
+dataset,table,file,column,dtype,use,locked,role,lock_reason
+MIMIC-IV-ED 2.2,edstays,ed/edstays.csv.gz,subject_id,int,Y,Y,key,links to patients and every ED table
+MIMIC-IV-ED 2.2,edstays,ed/edstays.csv.gz,hadm_id,int,Y,Y,key,links ED visit to admission (empty if no admission)
+MIMIC-IV-ED 2.2,edstays,ed/edstays.csv.gz,stay_id,int,Y,Y,key,ED stay id; links triage vitalsign pyxis medrecon diagnosis (not the ICU stay_id)
+MIMIC-IV-ED 2.2,edstays,ed/edstays.csv.gz,intime,datetime,Y,Y,time,ED arrival; matches transfers.intime for ED rows
+MIMIC-IV-ED 2.2,edstays,ed/edstays.csv.gz,outtime,datetime,Y,N,time,ED departure; time of ED diagnosis codes
+MIMIC-IV-ED 2.2,edstays,ed/edstays.csv.gz,gender,string,Y,N,static,
+MIMIC-IV-ED 2.2,edstays,ed/edstays.csv.gz,race,string,N,N,static,
+MIMIC-IV-ED 2.2,edstays,ed/edstays.csv.gz,arrival_transport,string,N,N,other,
+MIMIC-IV-ED 2.2,edstays,ed/edstays.csv.gz,disposition,string,N,N,other,
+MIMIC-IV-ED 2.2,triage,ed/triage.csv.gz,subject_id,int,Y,Y,key,links to patients
+MIMIC-IV-ED 2.2,triage,ed/triage.csv.gz,stay_id,int,Y,Y,key,links to edstays
+MIMIC-IV-ED 2.2,triage,ed/triage.csv.gz,temperature,float,Y,N,value,
+MIMIC-IV-ED 2.2,triage,ed/triage.csv.gz,heartrate,float,Y,N,value,
+MIMIC-IV-ED 2.2,triage,ed/triage.csv.gz,resprate,float,Y,N,value,
+MIMIC-IV-ED 2.2,triage,ed/triage.csv.gz,o2sat,float,Y,N,value,
+MIMIC-IV-ED 2.2,triage,ed/triage.csv.gz,sbp,float,Y,N,value,
+MIMIC-IV-ED 2.2,triage,ed/triage.csv.gz,dbp,float,Y,N,value,
+MIMIC-IV-ED 2.2,triage,ed/triage.csv.gz,pain,string,Y,N,value,
+MIMIC-IV-ED 2.2,triage,ed/triage.csv.gz,acuity,float,Y,N,value,
+MIMIC-IV-ED 2.2,triage,ed/triage.csv.gz,chiefcomplaint,string,N,N,text,free text
+MIMIC-IV-ED 2.2,vitalsign,ed/vitalsign.csv.gz,subject_id,int,Y,Y,key,links to patients
+MIMIC-IV-ED 2.2,vitalsign,ed/vitalsign.csv.gz,stay_id,int,Y,Y,key,links to edstays
+MIMIC-IV-ED 2.2,vitalsign,ed/vitalsign.csv.gz,charttime,datetime,Y,N,time,event time
+MIMIC-IV-ED 2.2,vitalsign,ed/vitalsign.csv.gz,temperature,float,Y,N,value,
+MIMIC-IV-ED 2.2,vitalsign,ed/vitalsign.csv.gz,heartrate,float,Y,N,value,
+MIMIC-IV-ED 2.2,vitalsign,ed/vitalsign.csv.gz,resprate,float,Y,N,value,
+MIMIC-IV-ED 2.2,vitalsign,ed/vitalsign.csv.gz,o2sat,float,Y,N,value,
+MIMIC-IV-ED 2.2,vitalsign,ed/vitalsign.csv.gz,sbp,int,Y,N,value,
+MIMIC-IV-ED 2.2,vitalsign,ed/vitalsign.csv.gz,dbp,int,Y,N,value,
+MIMIC-IV-ED 2.2,vitalsign,ed/vitalsign.csv.gz,rhythm,string,N,N,text,
+MIMIC-IV-ED 2.2,vitalsign,ed/vitalsign.csv.gz,pain,string,Y,N,value,
+MIMIC-IV-ED 2.2,pyxis,ed/pyxis.csv.gz,subject_id,int,Y,Y,key,links to patients
+MIMIC-IV-ED 2.2,pyxis,ed/pyxis.csv.gz,stay_id,int,Y,Y,key,links to edstays
+MIMIC-IV-ED 2.2,pyxis,ed/pyxis.csv.gz,charttime,datetime,Y,N,time,event time
+MIMIC-IV-ED 2.2,pyxis,ed/pyxis.csv.gz,med_rn,int,N,N,other,row counter
+MIMIC-IV-ED 2.2,pyxis,ed/pyxis.csv.gz,name,string,Y,N,code,drug name
+MIMIC-IV-ED 2.2,pyxis,ed/pyxis.csv.gz,gsn_rn,int,N,N,other,row counter
+MIMIC-IV-ED 2.2,pyxis,ed/pyxis.csv.gz,gsn,string,Y,N,code,drug code
+MIMIC-IV-ED 2.2,medrecon,ed/medrecon.csv.gz,subject_id,int,Y,Y,key,links to patients
+MIMIC-IV-ED 2.2,medrecon,ed/medrecon.csv.gz,stay_id,int,Y,Y,key,links to edstays
+MIMIC-IV-ED 2.2,medrecon,ed/medrecon.csv.gz,charttime,datetime,Y,N,time,when recorded (home drugs)
+MIMIC-IV-ED 2.2,medrecon,ed/medrecon.csv.gz,name,string,Y,N,code,drug name
+MIMIC-IV-ED 2.2,medrecon,ed/medrecon.csv.gz,gsn,string,Y,N,code,
+MIMIC-IV-ED 2.2,medrecon,ed/medrecon.csv.gz,ndc,string,Y,N,code,
+MIMIC-IV-ED 2.2,medrecon,ed/medrecon.csv.gz,etc_rn,int,N,N,other,row counter
+MIMIC-IV-ED 2.2,medrecon,ed/medrecon.csv.gz,etccode,string,Y,N,code,drug class
+MIMIC-IV-ED 2.2,medrecon,ed/medrecon.csv.gz,etcdescription,string,Y,N,text,
+MIMIC-IV-ED 2.2,diagnosis,ed/diagnosis.csv.gz,subject_id,int,Y,Y,key,links to patients
+MIMIC-IV-ED 2.2,diagnosis,ed/diagnosis.csv.gz,stay_id,int,Y,Y,key,links to edstays
+MIMIC-IV-ED 2.2,diagnosis,ed/diagnosis.csv.gz,seq_num,int,Y,N,other,diagnosis rank in visit
+MIMIC-IV-ED 2.2,diagnosis,ed/diagnosis.csv.gz,icd_code,string,Y,Y,key,links to d_icd_diagnoses
+MIMIC-IV-ED 2.2,diagnosis,ed/diagnosis.csv.gz,icd_version,int,Y,Y,key,links to d_icd_diagnoses
+MIMIC-IV-ED 2.2,diagnosis,ed/diagnosis.csv.gz,icd_title,string,N,N,text,title already in table
+MIMIC-IV 3.1,patients,hosp/patients.csv.gz,subject_id,int,Y,Y,key,patient id for every table
+MIMIC-IV 3.1,patients,hosp/patients.csv.gz,gender,string,Y,N,static,
+MIMIC-IV 3.1,patients,hosp/patients.csv.gz,anchor_age,int,Y,N,static,
+MIMIC-IV 3.1,patients,hosp/patients.csv.gz,anchor_year,int,Y,N,static,
+MIMIC-IV 3.1,patients,hosp/patients.csv.gz,anchor_year_group,string,Y,N,static,
+MIMIC-IV 3.1,patients,hosp/patients.csv.gz,dod,date,Y,N,time,date of death
+MIMIC-IV 3.1,omr,hosp/omr.csv.gz,subject_id,int,Y,Y,key,links to patients
+MIMIC-IV 3.1,omr,hosp/omr.csv.gz,chartdate,date,Y,N,time,date only
+MIMIC-IV 3.1,omr,hosp/omr.csv.gz,seq_num,int,N,N,other,
+MIMIC-IV 3.1,omr,hosp/omr.csv.gz,result_name,string,Y,N,code,measure name
+MIMIC-IV 3.1,omr,hosp/omr.csv.gz,result_value,string,Y,N,value,text value (needs parsing)
+MIMIC-IV 3.1,transfers,hosp/transfers.csv.gz,subject_id,int,Y,Y,key,links to patients
+MIMIC-IV 3.1,transfers,hosp/transfers.csv.gz,hadm_id,int,Y,Y,key,links to admissions (empty for ED-only visits)
+MIMIC-IV 3.1,transfers,hosp/transfers.csv.gz,transfer_id,int,N,N,other,row id
+MIMIC-IV 3.1,transfers,hosp/transfers.csv.gz,eventtype,string,Y,Y,key,needed to recognise ED / ward / ICU rows for linking
+MIMIC-IV 3.1,transfers,hosp/transfers.csv.gz,careunit,string,Y,N,other,
+MIMIC-IV 3.1,transfers,hosp/transfers.csv.gz,intime,datetime,Y,Y,time,matched to edstays.intime and icustays interval
+MIMIC-IV 3.1,transfers,hosp/transfers.csv.gz,outtime,datetime,Y,Y,time,matched to icustays interval
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,microevent_id,int,N,N,other,row id
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,subject_id,int,Y,Y,key,links to patients
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,hadm_id,int,Y,Y,key,links to admissions (may be empty)
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,micro_specimen_id,int,N,N,other,
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,order_provider_id,string,N,N,other,
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,chartdate,datetime,Y,N,time,date fallback when charttime missing
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,charttime,datetime,Y,N,time,event time
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,spec_itemid,int,Y,N,code,specimen code
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,spec_type_desc,string,Y,N,code,specimen type
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,test_seq,int,N,N,other,
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,storedate,datetime,N,N,time,result time (sensitivity only)
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,storetime,datetime,N,N,time,result time (sensitivity only)
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,test_itemid,int,Y,N,code,
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,test_name,string,Y,N,code,
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,org_itemid,int,Y,N,code,organism code
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,org_name,string,Y,N,code,organism grown
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,isolate_num,int,N,N,other,
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,quantity,string,N,N,other,
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,ab_itemid,int,Y,N,code,antibiotic code
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,ab_name,string,Y,N,code,antibiotic name
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,dilution_text,string,N,N,other,
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,dilution_comparison,string,N,N,other,
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,dilution_value,float,N,N,other,
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,interpretation,string,Y,N,value,susceptibility (S/I/R)
+MIMIC-IV 3.1,microbiologyevents,hosp/microbiologyevents.csv.gz,comments,string,N,N,text,
+MIMIC-IV 3.1,labevents,hosp/labevents.csv.gz,labevent_id,int,N,N,other,row id
+MIMIC-IV 3.1,labevents,hosp/labevents.csv.gz,subject_id,int,Y,Y,key,links to patients
+MIMIC-IV 3.1,labevents,hosp/labevents.csv.gz,hadm_id,int,Y,Y,key,links to admissions (empty for outpatient labs)
+MIMIC-IV 3.1,labevents,hosp/labevents.csv.gz,specimen_id,int,N,N,other,
+MIMIC-IV 3.1,labevents,hosp/labevents.csv.gz,itemid,int,Y,Y,key,links to d_labitems
+MIMIC-IV 3.1,labevents,hosp/labevents.csv.gz,order_provider_id,string,N,N,other,
+MIMIC-IV 3.1,labevents,hosp/labevents.csv.gz,charttime,datetime,Y,N,time,event time
+MIMIC-IV 3.1,labevents,hosp/labevents.csv.gz,storetime,datetime,N,N,time,result time (sensitivity only)
+MIMIC-IV 3.1,labevents,hosp/labevents.csv.gz,value,string,Y,N,value,text value
+MIMIC-IV 3.1,labevents,hosp/labevents.csv.gz,valuenum,float,Y,N,value,numeric value
+MIMIC-IV 3.1,labevents,hosp/labevents.csv.gz,valueuom,string,Y,N,unit,
+MIMIC-IV 3.1,labevents,hosp/labevents.csv.gz,ref_range_lower,float,Y,N,value,
+MIMIC-IV 3.1,labevents,hosp/labevents.csv.gz,ref_range_upper,float,Y,N,value,
+MIMIC-IV 3.1,labevents,hosp/labevents.csv.gz,flag,string,Y,N,value,abnormal flag
+MIMIC-IV 3.1,labevents,hosp/labevents.csv.gz,priority,string,N,N,other,
+MIMIC-IV 3.1,labevents,hosp/labevents.csv.gz,comments,string,N,N,text,
+MIMIC-IV 3.1,d_labitems,hosp/d_labitems.csv.gz,itemid,int,Y,Y,key,dictionary key for labevents
+MIMIC-IV 3.1,d_labitems,hosp/d_labitems.csv.gz,label,string,Y,N,text,
+MIMIC-IV 3.1,d_labitems,hosp/d_labitems.csv.gz,fluid,string,Y,N,text,
+MIMIC-IV 3.1,d_labitems,hosp/d_labitems.csv.gz,category,string,Y,N,text,
+MIMIC-IV 3.1,admissions,hosp/admissions.csv.gz,subject_id,int,Y,Y,key,links to patients
+MIMIC-IV 3.1,admissions,hosp/admissions.csv.gz,hadm_id,int,Y,Y,key,admission id for every hospital table
+MIMIC-IV 3.1,admissions,hosp/admissions.csv.gz,admittime,datetime,Y,Y,time,episode start; links outpatient rows by window
+MIMIC-IV 3.1,admissions,hosp/admissions.csv.gz,dischtime,datetime,Y,Y,time,episode end; time of billed diagnoses
+MIMIC-IV 3.1,admissions,hosp/admissions.csv.gz,deathtime,datetime,Y,N,time,
+MIMIC-IV 3.1,admissions,hosp/admissions.csv.gz,admission_type,string,Y,N,static,
+MIMIC-IV 3.1,admissions,hosp/admissions.csv.gz,admit_provider_id,string,N,N,other,
+MIMIC-IV 3.1,admissions,hosp/admissions.csv.gz,admission_location,string,Y,N,static,
+MIMIC-IV 3.1,admissions,hosp/admissions.csv.gz,discharge_location,string,Y,N,static,
+MIMIC-IV 3.1,admissions,hosp/admissions.csv.gz,insurance,string,N,N,static,
+MIMIC-IV 3.1,admissions,hosp/admissions.csv.gz,language,string,N,N,static,
+MIMIC-IV 3.1,admissions,hosp/admissions.csv.gz,marital_status,string,N,N,static,
+MIMIC-IV 3.1,admissions,hosp/admissions.csv.gz,race,string,N,N,static,
+MIMIC-IV 3.1,admissions,hosp/admissions.csv.gz,edregtime,datetime,Y,N,time,ED registration
+MIMIC-IV 3.1,admissions,hosp/admissions.csv.gz,edouttime,datetime,Y,N,time,ED departure
+MIMIC-IV 3.1,admissions,hosp/admissions.csv.gz,hospital_expire_flag,int,Y,N,value,in-hospital death
+MIMIC-IV 3.1,services,hosp/services.csv.gz,subject_id,int,Y,Y,key,links to patients
+MIMIC-IV 3.1,services,hosp/services.csv.gz,hadm_id,int,Y,Y,key,links to admissions
+MIMIC-IV 3.1,services,hosp/services.csv.gz,transfertime,datetime,Y,N,time,
+MIMIC-IV 3.1,services,hosp/services.csv.gz,prev_service,string,Y,N,value,
+MIMIC-IV 3.1,services,hosp/services.csv.gz,curr_service,string,Y,N,value,
+MIMIC-IV 3.1,prescriptions,hosp/prescriptions.csv.gz,subject_id,int,Y,Y,key,links to patients
+MIMIC-IV 3.1,prescriptions,hosp/prescriptions.csv.gz,hadm_id,int,Y,Y,key,links to admissions (may be empty)
+MIMIC-IV 3.1,prescriptions,hosp/prescriptions.csv.gz,pharmacy_id,int,N,N,other,row id
+MIMIC-IV 3.1,prescriptions,hosp/prescriptions.csv.gz,poe_id,string,N,N,other,
+MIMIC-IV 3.1,prescriptions,hosp/prescriptions.csv.gz,poe_seq,int,N,N,other,
+MIMIC-IV 3.1,prescriptions,hosp/prescriptions.csv.gz,order_provider_id,string,N,N,other,
+MIMIC-IV 3.1,prescriptions,hosp/prescriptions.csv.gz,starttime,datetime,Y,N,time,drug start
+MIMIC-IV 3.1,prescriptions,hosp/prescriptions.csv.gz,stoptime,datetime,Y,N,time,drug stop
+MIMIC-IV 3.1,prescriptions,hosp/prescriptions.csv.gz,drug_type,string,N,N,other,
+MIMIC-IV 3.1,prescriptions,hosp/prescriptions.csv.gz,drug,string,Y,N,code,drug name
+MIMIC-IV 3.1,prescriptions,hosp/prescriptions.csv.gz,formulary_drug_cd,string,Y,N,code,
+MIMIC-IV 3.1,prescriptions,hosp/prescriptions.csv.gz,gsn,string,Y,N,code,
+MIMIC-IV 3.1,prescriptions,hosp/prescriptions.csv.gz,ndc,string,Y,N,code,
+MIMIC-IV 3.1,prescriptions,hosp/prescriptions.csv.gz,prod_strength,string,N,N,other,
+MIMIC-IV 3.1,prescriptions,hosp/prescriptions.csv.gz,form_rx,string,N,N,other,
+MIMIC-IV 3.1,prescriptions,hosp/prescriptions.csv.gz,dose_val_rx,string,N,N,other,
+MIMIC-IV 3.1,prescriptions,hosp/prescriptions.csv.gz,dose_unit_rx,string,N,N,other,
+MIMIC-IV 3.1,prescriptions,hosp/prescriptions.csv.gz,form_val_disp,string,N,N,other,
+MIMIC-IV 3.1,prescriptions,hosp/prescriptions.csv.gz,form_unit_disp,string,N,N,other,
+MIMIC-IV 3.1,prescriptions,hosp/prescriptions.csv.gz,doses_per_24_hrs,float,N,N,other,
+MIMIC-IV 3.1,prescriptions,hosp/prescriptions.csv.gz,route,string,Y,N,value,
+MIMIC-IV 3.1,procedures_icd,hosp/procedures_icd.csv.gz,subject_id,int,Y,Y,key,links to patients
+MIMIC-IV 3.1,procedures_icd,hosp/procedures_icd.csv.gz,hadm_id,int,Y,Y,key,links to admissions
+MIMIC-IV 3.1,procedures_icd,hosp/procedures_icd.csv.gz,seq_num,int,Y,N,other,procedure rank
+MIMIC-IV 3.1,procedures_icd,hosp/procedures_icd.csv.gz,chartdate,date,Y,N,time,date only
+MIMIC-IV 3.1,procedures_icd,hosp/procedures_icd.csv.gz,icd_code,string,Y,Y,key,links to d_icd_procedures
+MIMIC-IV 3.1,procedures_icd,hosp/procedures_icd.csv.gz,icd_version,int,Y,Y,key,links to d_icd_procedures
+MIMIC-IV 3.1,diagnoses_icd,hosp/diagnoses_icd.csv.gz,subject_id,int,Y,Y,key,links to patients
+MIMIC-IV 3.1,diagnoses_icd,hosp/diagnoses_icd.csv.gz,hadm_id,int,Y,Y,key,links to admissions
+MIMIC-IV 3.1,diagnoses_icd,hosp/diagnoses_icd.csv.gz,seq_num,int,Y,N,other,diagnosis rank (1 = principal)
+MIMIC-IV 3.1,diagnoses_icd,hosp/diagnoses_icd.csv.gz,icd_code,string,Y,Y,key,links to d_icd_diagnoses
+MIMIC-IV 3.1,diagnoses_icd,hosp/diagnoses_icd.csv.gz,icd_version,int,Y,Y,key,links to d_icd_diagnoses
+MIMIC-IV 3.1,d_icd_diagnoses,hosp/d_icd_diagnoses.csv.gz,icd_code,string,Y,Y,key,dictionary key (with icd_version)
+MIMIC-IV 3.1,d_icd_diagnoses,hosp/d_icd_diagnoses.csv.gz,icd_version,int,Y,Y,key,dictionary key (with icd_code)
+MIMIC-IV 3.1,d_icd_diagnoses,hosp/d_icd_diagnoses.csv.gz,long_title,string,Y,N,text,
+MIMIC-IV 3.1,d_icd_procedures,hosp/d_icd_procedures.csv.gz,icd_code,string,Y,Y,key,dictionary key (with icd_version)
+MIMIC-IV 3.1,d_icd_procedures,hosp/d_icd_procedures.csv.gz,icd_version,int,Y,Y,key,dictionary key (with icd_code)
+MIMIC-IV 3.1,d_icd_procedures,hosp/d_icd_procedures.csv.gz,long_title,string,Y,N,text,
+MIMIC-IV 3.1,icustays,icu/icustays.csv.gz,subject_id,int,Y,Y,key,links to patients
+MIMIC-IV 3.1,icustays,icu/icustays.csv.gz,hadm_id,int,Y,Y,key,links to admissions
+MIMIC-IV 3.1,icustays,icu/icustays.csv.gz,stay_id,int,Y,Y,key,ICU stay id; links chartevents inputevents outputevents procedureevents
+MIMIC-IV 3.1,icustays,icu/icustays.csv.gz,first_careunit,string,Y,N,other,
+MIMIC-IV 3.1,icustays,icu/icustays.csv.gz,last_careunit,string,Y,N,other,
+MIMIC-IV 3.1,icustays,icu/icustays.csv.gz,intime,datetime,Y,Y,time,ICU stay start; matched to transfers interval
+MIMIC-IV 3.1,icustays,icu/icustays.csv.gz,outtime,datetime,Y,Y,time,ICU stay end; matched to transfers interval
+MIMIC-IV 3.1,icustays,icu/icustays.csv.gz,los,float,Y,N,other,length of stay (days)
+MIMIC-IV 3.1,chartevents,icu/chartevents.csv.gz,subject_id,int,Y,Y,key,links to patients
+MIMIC-IV 3.1,chartevents,icu/chartevents.csv.gz,hadm_id,int,Y,Y,key,links to admissions
+MIMIC-IV 3.1,chartevents,icu/chartevents.csv.gz,stay_id,int,Y,Y,key,links to icustays
+MIMIC-IV 3.1,chartevents,icu/chartevents.csv.gz,caregiver_id,int,N,N,other,
+MIMIC-IV 3.1,chartevents,icu/chartevents.csv.gz,charttime,datetime,Y,N,time,event time
+MIMIC-IV 3.1,chartevents,icu/chartevents.csv.gz,storetime,datetime,N,N,time,
+MIMIC-IV 3.1,chartevents,icu/chartevents.csv.gz,itemid,int,Y,Y,key,links to d_items
+MIMIC-IV 3.1,chartevents,icu/chartevents.csv.gz,value,string,Y,N,value,text value
+MIMIC-IV 3.1,chartevents,icu/chartevents.csv.gz,valuenum,float,Y,N,value,numeric value
+MIMIC-IV 3.1,chartevents,icu/chartevents.csv.gz,valueuom,string,Y,N,unit,
+MIMIC-IV 3.1,chartevents,icu/chartevents.csv.gz,warning,int,N,N,other,
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,subject_id,int,Y,Y,key,links to patients
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,hadm_id,int,Y,Y,key,links to admissions
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,stay_id,int,Y,Y,key,links to icustays (may be empty)
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,caregiver_id,int,N,N,other,
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,starttime,datetime,Y,N,time,
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,endtime,datetime,Y,N,time,
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,storetime,datetime,N,N,time,
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,itemid,int,Y,Y,key,links to d_items
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,amount,float,Y,N,value,
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,amountuom,string,Y,N,unit,
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,rate,float,Y,N,value,
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,rateuom,string,Y,N,unit,
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,orderid,int,N,N,other,order id (part of key)
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,linkorderid,int,N,N,other,
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,ordercategoryname,string,N,N,other,
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,secondaryordercategoryname,string,N,N,other,
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,ordercomponenttypedescription,string,N,N,other,
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,ordercategorydescription,string,N,N,other,
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,patientweight,float,N,N,value,
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,totalamount,float,N,N,value,
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,totalamountuom,string,N,N,unit,
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,isopenbag,int,N,N,other,
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,continueinnextdept,int,N,N,other,
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,statusdescription,string,N,N,other,
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,originalamount,float,N,N,other,
+MIMIC-IV 3.1,inputevents,icu/inputevents.csv.gz,originalrate,float,N,N,other,
+MIMIC-IV 3.1,outputevents,icu/outputevents.csv.gz,subject_id,int,Y,Y,key,links to patients
+MIMIC-IV 3.1,outputevents,icu/outputevents.csv.gz,hadm_id,int,Y,Y,key,links to admissions
+MIMIC-IV 3.1,outputevents,icu/outputevents.csv.gz,stay_id,int,Y,Y,key,links to icustays
+MIMIC-IV 3.1,outputevents,icu/outputevents.csv.gz,caregiver_id,int,N,N,other,
+MIMIC-IV 3.1,outputevents,icu/outputevents.csv.gz,charttime,datetime,Y,N,time,event time
+MIMIC-IV 3.1,outputevents,icu/outputevents.csv.gz,storetime,datetime,N,N,time,
+MIMIC-IV 3.1,outputevents,icu/outputevents.csv.gz,itemid,int,Y,Y,key,links to d_items
+MIMIC-IV 3.1,outputevents,icu/outputevents.csv.gz,value,float,Y,N,value,
+MIMIC-IV 3.1,outputevents,icu/outputevents.csv.gz,valueuom,string,Y,N,unit,
+MIMIC-IV 3.1,procedureevents,icu/procedureevents.csv.gz,subject_id,int,Y,Y,key,links to patients
+MIMIC-IV 3.1,procedureevents,icu/procedureevents.csv.gz,hadm_id,int,Y,Y,key,links to admissions
+MIMIC-IV 3.1,procedureevents,icu/procedureevents.csv.gz,stay_id,int,Y,Y,key,links to icustays
+MIMIC-IV 3.1,procedureevents,icu/procedureevents.csv.gz,caregiver_id,int,N,N,other,
+MIMIC-IV 3.1,procedureevents,icu/procedureevents.csv.gz,starttime,datetime,Y,N,time,
+MIMIC-IV 3.1,procedureevents,icu/procedureevents.csv.gz,endtime,datetime,Y,N,time,
+MIMIC-IV 3.1,procedureevents,icu/procedureevents.csv.gz,storetime,datetime,N,N,time,
+MIMIC-IV 3.1,procedureevents,icu/procedureevents.csv.gz,itemid,int,Y,Y,key,links to d_items
+MIMIC-IV 3.1,procedureevents,icu/procedureevents.csv.gz,value,float,Y,N,value,
+MIMIC-IV 3.1,procedureevents,icu/procedureevents.csv.gz,valueuom,string,Y,N,unit,
+MIMIC-IV 3.1,procedureevents,icu/procedureevents.csv.gz,location,string,N,N,other,
+MIMIC-IV 3.1,procedureevents,icu/procedureevents.csv.gz,locationcategory,string,N,N,other,
+MIMIC-IV 3.1,procedureevents,icu/procedureevents.csv.gz,orderid,int,N,N,other,order id (part of key)
+MIMIC-IV 3.1,procedureevents,icu/procedureevents.csv.gz,linkorderid,int,N,N,other,
+MIMIC-IV 3.1,procedureevents,icu/procedureevents.csv.gz,ordercategoryname,string,N,N,other,
+MIMIC-IV 3.1,procedureevents,icu/procedureevents.csv.gz,ordercategorydescription,string,N,N,other,
+MIMIC-IV 3.1,procedureevents,icu/procedureevents.csv.gz,patientweight,float,N,N,value,
+MIMIC-IV 3.1,procedureevents,icu/procedureevents.csv.gz,isopenbag,int,N,N,other,
+MIMIC-IV 3.1,procedureevents,icu/procedureevents.csv.gz,continueinnextdept,int,N,N,other,
+MIMIC-IV 3.1,procedureevents,icu/procedureevents.csv.gz,statusdescription,string,N,N,other,
+MIMIC-IV 3.1,procedureevents,icu/procedureevents.csv.gz,originalamount,float,N,N,other,
+MIMIC-IV 3.1,procedureevents,icu/procedureevents.csv.gz,originalrate,float,N,N,other,
+MIMIC-IV 3.1,d_items,icu/d_items.csv.gz,itemid,int,Y,Y,key,dictionary key for ICU tables
+MIMIC-IV 3.1,d_items,icu/d_items.csv.gz,label,string,Y,N,text,
+MIMIC-IV 3.1,d_items,icu/d_items.csv.gz,abbreviation,string,N,N,text,
+MIMIC-IV 3.1,d_items,icu/d_items.csv.gz,linksto,string,Y,N,other,which ICU table uses the item
+MIMIC-IV 3.1,d_items,icu/d_items.csv.gz,category,string,Y,N,text,
+MIMIC-IV 3.1,d_items,icu/d_items.csv.gz,unitname,string,Y,N,unit,
+MIMIC-IV 3.1,d_items,icu/d_items.csv.gz,param_type,string,N,N,other,
+MIMIC-IV 3.1,d_items,icu/d_items.csv.gz,lownormalvalue,float,N,N,value,
+MIMIC-IV 3.1,d_items,icu/d_items.csv.gz,highnormalvalue,float,N,N,value,

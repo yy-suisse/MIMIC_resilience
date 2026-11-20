@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# MIMIC data and anything derived from it: never in a public repository (PhysioNet data use agreement)
+*.parquet
+*.csv.gz
+*.npy
+*.npz
+*.feather
+
+# trained models and training logs
+*.pt
+*.pth
+tensorboard/
+runs/

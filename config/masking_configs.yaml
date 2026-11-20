@@ -1,0 +1,46 @@
+# masking_configs.yaml (version 3, used by bert/train_bert.py)
+# Masking, loss and packing settings for BERT pre-training of D1, D2 and D3.
+
+# ---- which events are masked ---------------------------------------------------------------
+mask_rate: 0.15            # share of the events (pieces) of each patient segment that are selected
+span:                      # selected events come in runs of consecutive events
+  mean: 3                  # geometric length, mean 3 events
+  max: 10                  # never longer than 10 events
+
+# ---- what is masked inside a selected event (plan B) ---------------------------------------
+# A numeric event has up to three parts: concept, magnitude (quantile, and [VALUE] in D3), unit.
+# Each part is masked independently with this probability, at least one part per event.
+# Quantile and [VALUE] form ONE part: the bin can be read off the value, so they are masked together.
+# Events without a number, and events whose bin is "unknown", always have their concept (and unit) masked.
+part_prob: 0.5
+
+# ---- how a masked part is replaced in the input (BERT 80/10/10) ----------------------------
+# The loss is computed on all masked parts, whatever was put in the input.
+# "random" draws from the same token type: concept -> another concept, quantile -> another bin,
+# unit -> another unit, value -> a scaled value of another numeric event of the same row.
+replace:
+  mask: 0.8
+  random: 0.1
+  keep: 0.1
+
+# ---- loss ----------------------------------------------------------------------------------
+# Each part: mean within each patient segment, then over segments, divided by its baseline
+# (the loss of the frequency guess, measured on validation batches before training), then weighted.
+loss_weights:
+  concept_event: 1.0       # concept of an event without a number (diagnosis, drug, procedure, death, ...)
+  concept_measure: 1.0     # concept of a numeric event (lab, vital sign, ...)
+  quantile: 1.0            # quantile bin, soft labels
+  unit: 1.0
+  value: 1.0               # D3 only, Huber loss on the scaled value
+soft_label_eps: 0.1        # quantile target: weight given to each neighbouring bin
+huber_delta: 1.0
+value_clip: 5.0            # scaled value = clip((v - median) / IQR, -5, 5)
+baseline_batches: 50       # validation batches used to measure the baselines
+
+# ---- packing --------------------------------------------------------------------------------
+# Several patient segments are packed into one row; a token only attends to its own segment.
+row_len: 1024              # positions per row, the same for all models (same compute)
+models:                    # longest segment of one patient (gender included)
+  D1: {max_segment: 512}
+  D2: {max_segment: 800}
+  D3: {max_segment: 1000}

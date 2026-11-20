@@ -1,0 +1,52 @@
+# Paths, split and column lists for the BERT trajectories (read by build_bert_master.ipynb)
+
+paths:
+  out: 'D:\MIMIC\trajectory_out'
+  events: events_thinned_4h.parquet          # relative to out
+  vocab: vocabulary/vocab.parquet            # relative to out
+  master_dir: bert/master                    # relative to out
+  patients: 'D:\MIMIC\mimic-iv-3.1\hosp\patients.csv.gz'
+
+split:
+  fractions: {train: 0.6, val: 0.2, test: 0.2}
+  seed: 42
+
+n_buckets: 128                               # raise it if a bucket runs out of memory (64 crashed at bucket 4)
+
+min_patients: 50                             # vocabulary cut-off: rarer concepts become [UNK] for the model
+
+# columns read from the events
+cols_input_version: [subject_id, event_row, source, ontology_version, label, code, value, unit, quantile_bin,
+                     days_since_birth, time_of_day, episode_id, setting, time_basis]
+
+# columns of the master table, in this order
+cols_master_version: [subject_id, split, pos, piece, token_id, type, label, source, value, unit,
+                      age_days, seconds_in_day, episode_id, setting, time_basis, event_row]
+
+# BERT models built from the master table
+#   types: token types (rows) kept;  pos is counted again after this filter
+#   cols:  columns kept, in three groups
+#     keys      subject_id, split, pos
+#     inputs    model_id (token id after the cut-off), source, age_days, seconds_in_day, value (D3 only)
+#     masking   type, piece
+#     loader    episode_id (window ends at an episode boundary), setting (balance check),
+#               token_id + unit (D3: median and IQR per concept and unit, to scale the value)
+models:
+  D1:   # concept only
+    types: [gender, code]
+    cols: [subject_id, split, pos,
+           model_id, source, age_days, seconds_in_day,
+           type, piece,
+           episode_id, setting]
+  D2:   # concept + quantile + unit
+    types: [gender, code, quantile, unit]
+    cols: [subject_id, split, pos,
+           model_id, source, age_days, seconds_in_day,
+           type, piece,
+           episode_id, setting]
+  D3:   # concept + quantile + [VALUE] + unit, with the raw value
+    types: [gender, code, quantile, value, unit]
+    cols: [subject_id, split, pos,
+           model_id, source, age_days, seconds_in_day, value,
+           type, piece,
+           episode_id, setting, token_id, unit]
