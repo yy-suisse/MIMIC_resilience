@@ -1,0 +1,38 @@
+# jepa_config.yaml: settings of the JEPA training (read by jepa/train_jepa.py)
+# Plan and decisions: claude/jepa_plan.md in the claude.ai project "Mimic Jepa".
+
+# ---- context: gender + history + recent window -------------------------------------------
+recent_days: 30            # recent window before the landmark T, in days (try 60, 365, ...)
+history_max: 128           # at most this many history items (the most recent are kept)
+history_sources:           # what counts as history: diagnoses, drugs, procedures
+  - diagnoses_icd
+  - diagnosis
+  - procedures_icd
+  - prescriptions
+  - pyxis
+  - medrecon
+
+# ---- target: the events of (T + delta, T + delta + L] --------------------------------------
+target_exclude:            # bedside readings left out of the target: the aim is pathologies
+  - vitalsign
+  - triage
+  - chartevents
+  - outputevents
+n_pairs: 4                 # (delta, L) pairs drawn per context, so Z cannot ignore the gap
+delta_days: {min: 0, max: 730}     # gap after T, drawn on a log scale
+length_days: {min: 1, max: 365}    # target window length, drawn on a log scale
+max_pair_tries: 10         # draws allowed to find a non-empty target before giving up on a pair
+
+# ---- lengths ------------------------------------------------------------------------------
+row_len: 1024              # positions per packed row (contexts and targets are packed separately)
+models:                    # longest context and longest target, in tokens (as the BERT segment caps)
+  D1: {context_cap: 512, target_cap: 512}
+  D2: {context_cap: 800, target_cap: 800}
+  D3: {context_cap: 1000, target_cap: 1000}
+
+# ---- model and loss -------------------------------------------------------------------------
+ema: {start: 0.996, end: 1.0}      # teacher momentum, cosine from start to end over the run
+lambda_var: 1.0            # variance term on the context vectors (against collapse)
+lambda_cov: 0.04           # covariance term on the context vectors
+time_features: 8           # sine/cosine frequencies for delta and L in the predictor
+delta_bins: [7, 30, 180]   # loss is also logged per gap range: <7, 7-30, 30-180, >=180 days

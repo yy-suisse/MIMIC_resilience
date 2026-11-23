@@ -93,9 +93,14 @@ class TrajectoryBert(nn.Module):
             x = x + v * b["value_on"][..., None].to(v.dtype)
         return self.emb_drop(self.emb_norm(x))
 
-    def forward(self, b):
-        """Final hidden state of every position, shape (batch, row length, dim)."""
+    def forward(self, b, extra=None):
+        """Final hidden state of every position, shape (batch, row length, dim).
+
+        extra: an optional embedding added to the input (JEPA adds its segment embedding here).
+        """
         x = self.embed(b)
+        if extra is not None:
+            x = x + extra
         ang = b["pos"].float()[..., None] * self.inv_freq                 # (B, L, head_dim / 2)
         cos, sin = ang.cos()[:, None], ang.sin()[:, None]                  # (B, 1, L, head_dim / 2)
         mask = (b["seg"][:, :, None] == b["seg"][:, None, :])[:, None]     # (B, 1, L, L): own segment only

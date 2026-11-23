@@ -89,8 +89,11 @@ def value_scaling_tables(vocab, value_stats):
     return per_unit, per_concept
 
 
-def to_model_rows(master, model_types, remap, sources, per_unit, per_concept, unknown_full, clip):
-    """One master bucket -> the rows and columns of the arrays, for one model."""
+def to_model_rows(master, model_types, remap, sources, per_unit, per_concept, unknown_full, clip, keep=()):
+    """One master bucket -> the rows and columns of the arrays, for one model.
+
+    keep: extra master columns to carry through unchanged (JEPA keeps episode_id).
+    """
     by_piece = ["subject_id", "piece"]
     is_q = pl.col("type") == "quantile"
     df = master.with_columns(
@@ -128,6 +131,7 @@ def to_model_rows(master, model_types, remap, sources, per_unit, per_concept, un
         pl.col("piece").cast(pl.Int32),
         "kind",
         ((pl.col("type") != "gender") & new_piece & new_day).alias("day_start"),
+        *keep,
     )
 
 
