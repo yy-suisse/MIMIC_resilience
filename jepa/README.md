@@ -60,6 +60,13 @@ Drawn on the fly, one per patient per epoch, so the same patient gives many spli
 
 Time is counted in days for Δ and L: with Δ = 0, the target starts the day after T.
 
+**Multiple views of a patient trajectory**: each (landmark, Δ, L) draw is one view, a different (context, target) split of the same trajectory.
+
+- **Many landmarks per trajectory:** a new T is drawn each time the patient comes up (about once per epoch), so the same trajectory is split into context and target at many points (about 12 landmarks per patient over a D3 run).
+- **Many Δ per landmark:** each landmark gets `n_pairs` = 4 pairs, each with its own Δ, plus new draws when the landmark comes back in a later epoch.
+- **Many L_obs per target trajectory:** for the same T and Δ, each pair draws its own L, so the same future is seen over many horizons. L_obs = min(L, d_last − (T + Δ)): L_obs = L when the data covers the window, shorter only when the record ends inside it.
+- Example: T = day 1,000, Δ = 40, data until day 2,500 → L = 30 gives L_obs = 30 (next month), L = 365 gives L_obs = 365 (next year), two nested windows with different targets y.
+
 ## Example (D3 encoder)
 
 A woman, about 68 years old (age_days ≈ 24,850). T = discharge from an admission, day 24,850 at 14:00. `recent_days` = 30.

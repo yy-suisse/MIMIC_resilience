@@ -1,0 +1,73 @@
+# resilience_config.yaml: points, embeddings, labels and score of the resilience step (read by resilience/*.py)
+# Rules: HERO plan (claude/hero_resilience_plan.md), disease rules from the MIMIC pilot (claude/resilience_study_plan.md).
+# Clinical choices marked "check" are defaults to confirm with the clinician.
+
+out_dir: resilience                  # relative to paths.out of bert/trajectory_columns.yaml
+
+# ---- points ------------------------------------------------------------------------------------
+# one point per admission (H...) or ED visit without admission (E...); outpatient days are not points
+point_kinds: {H: admission, E: ed_only}
+
+# ---- embeddings --------------------------------------------------------------------------------
+embed_batch: 256                     # contexts per forward pass
+predictions:                         # y_hat = Z(c, delta = gap, L = horizon); horizon <= 365 (trained range of L)
+  - {gap: 0, horizon: 365}
+  - {gap: 0, horizon: 180}
+bag:                                 # bag-of-codes baseline: the concepts of the same context, idf, SVD
+  dim: 256
+  fit_points: 200000                 # train points used to fit idf and SVD (random sample)
+random_dim: 256
+
+# ---- raw MIMIC tables read by the labels (the rest comes from <out>/events_parts and episodes.parquet) ------
+raw:
+  hosp: 'D:\MIMIC\mimic-iv-3.1\hosp'
+  ed: 'D:\MIMIC\mimic-iv-ed-2.2\ed'
+
+# ---- follow-up and death ---------------------------------------------------------------------------
+visits: [admission, ed, omr]         # a visit = admission start, ED arrival, or an outpatient day in omr
+                                     # (isolated lab results do not count)
+
+# ---- labels ------------------------------------------------------------------------------------
+# horizon window (T + gap, T + gap + horizon], days. Several horizons = several label sets (c works for any;
+# y_hat only for horizons in predictions)
+horizons: [180, 365]
+diseases:
+  t2d:
+    name: Type 2 diabetes
+    gap: 0
+    codes: [[10, '^E11'], [9, '^250\d[02]$']]           # (icd_version, regex on the code without dot)
+    exclude_codes: [[10, '^E10'], [9, '^250\d[13]$']]   # type 1 diabetes up to T + gap + H: not at risk
+    drugs: [metformin, glipizide, glyburide, glimepiride, gliclazide, tolbutamide, chlorpropamide, tolazamide,
+            sitagliptin, saxagliptin, linagliptin, alogliptin, vildagliptin, pioglitazone, rosiglitazone,
+            repaglinide, nateglinide, acarbose, miglitol, glucophage, glucotrol, januvia, janumet, tradjenta]
+    drug_sources: [medrecon, prescriptions]              # check: home meds (medrecon) and hospital prescriptions
+    test: hba1c                                          # onset HbA1c >= 6.5 %; abnormal 5.7-6.4 % (check)
+  ckd:
+    name: Chronic kidney disease
+    gap: 0
+    codes: [[10, '^N18'], [9, '^585']]
+    test: egfr                                           # onset eGFR < 60 over >= 90 days; abnormal: < 60 once
+  aki:
+    name: Acute kidney injury
+    gap: 0
+    codes: [[10, '^N17'], [9, '^584']]
+    test: creatinine                                     # onset KDIGO rise; abnormal: > 1.2 mg/dL (check)
+  sepsis:
+    name: Sepsis
+    gap: 0
+    codes: [[10, '^A4[01]'], [10, '^R652'], [9, '^038'], [9, '^9959[12]$'], [9, '^78552$']]
+    test: blood_culture                                  # onset simplified ASE; abnormal: organism grown (check)
+
+thresholds:                          # check
+  hba1c_onset: 6.5
+  hba1c_abnormal: 5.7
+  egfr_low: 60
+  egfr_days: 90
+  creatinine_abnormal: 1.2
+
+# ---- score -------------------------------------------------------------------------------------
+k: 100                               # neighbours counted
+search: 400                          # neighbours searched before keeping one point per other patient
+n_min: 20                            # fewer countable neighbours: no score (the point gets the prevalence)
+top_q: [0.05, 0.10]                  # list = top q of r among the evaluated points
+n_boot: 200                          # patient bootstrap for the intervals

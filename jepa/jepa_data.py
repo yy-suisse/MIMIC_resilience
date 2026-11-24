@@ -155,19 +155,14 @@ def keep_whole_pieces(idx, piece, cap):
     return idx[:end]
 
 
-def build_sample(a, p, jcfg, caps, rng, use_history=True):
-    """One training sample for patient p: a context and up to n_pairs targets. None if impossible."""
-    f = a.f
-    s, e = a.patient_ptr[p], a.patient_ptr[p + 1]
-    age, piece, source, ttype = f["age"], f["piece"], f["source"], f["ttype"]
-    last_day = int(age[e - 1])
+def context_at(a, p, t_idx, jcfg, caps, use_history=True):
+    """The context of patient p at the landmark token t_idx: gender + history + recent window.
 
-    # landmark T: the end of an episode that has at least one later day with data
-    landmarks = a.landmark_idx[a.landmark_ptr[p]:a.landmark_ptr[p + 1]]
-    landmarks = landmarks[age[landmarks] < last_day]
-    if len(landmarks) == 0:
-        return None
-    t_idx = int(rng.choice(landmarks))
+    Used by training (build_sample, random landmark) and by embedding (resilience/embed_points.py, every landmark).
+    """
+    f = a.f
+    s = a.patient_ptr[p]
+    age, piece, source, ttype = f["age"], f["piece"], f["source"], f["ttype"]
     t_day = int(age[t_idx])
 
     # recent window: tokens of the last recent_days up to T (rows are in time order)
@@ -196,12 +191,29 @@ def build_sample(a, p, jcfg, caps, rng, use_history=True):
     if not use_history:          # history switched off (check): same recent window, no history block
         hist = hist[:0]
 
-    context = {
+    return {
         "idx": np.concatenate([[s], hist, recent]).astype(np.int64),
         "segment": np.concatenate([[SEGMENT["static"]], np.full(len(hist), SEGMENT["history"]),
                                    np.full(len(recent), SEGMENT["recent"])]),
         "timeless": np.concatenate([[True], np.ones(len(hist), bool), np.zeros(len(recent), bool)]),
     }
+
+
+def build_sample(a, p, jcfg, caps, rng, use_history=True):
+    """One training sample for patient p: a context and up to n_pairs targets. None if impossible."""
+    f = a.f
+    s, e = a.patient_ptr[p], a.patient_ptr[p + 1]
+    age, piece, source, ttype = f["age"], f["piece"], f["source"], f["ttype"]
+    last_day = int(age[e - 1])
+
+    # landmark T: the end of an episode that has at least one later day with data
+    landmarks = a.landmark_idx[a.landmark_ptr[p]:a.landmark_ptr[p + 1]]
+    landmarks = landmarks[age[landmarks] < last_day]
+    if len(landmarks) == 0:
+        return None
+    t_idx = int(rng.choice(landmarks))
+    t_day = int(age[t_idx])
+    context = context_at(a, p, t_idx, jcfg, caps, use_history)
 
     # targets: events of (T + delta, T + delta + L], bedside readings excluded
     after = np.arange(t_idx + 1, e)
