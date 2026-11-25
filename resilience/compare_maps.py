@@ -15,6 +15,7 @@ Usage (PowerShell):
   cd C:\\Users\\yy\\Desktop\\codes_PhD\\jepa_mimic\\resilience
   python compare_maps.py                                       # default pairs (below), val, H = 365, top 5 %
   python compare_maps.py --pairs BERT_D2/c:JEPA_D2/c JEPA_D2/c:bag/bag --q 0.10
+  python compare_maps.py --pairs JEPA_D2/c:JEPA_D2_concat_hist/c JEPA_D2/c:JEPA_D2_z_transformer/c
 """
 import argparse
 import sys
@@ -34,7 +35,12 @@ DEFAULT_PAIRS = (
     + [f"BERT_D{k}/c:JEPA_D{k}/c" for k in (1, 2, 3)]          # both together
     + ["BERT_D1/c:BERT_D2/c", "BERT_D2/c:BERT_D3/c",           # what Q bins and values change
        "BERT_D2/c:bag/bag", "JEPA_D2/c:bag/bag",               # two good but unrelated maps
-       "BERT_D2/c:random/random"])                             # the floor
+       "BERT_D2/c:random/random"]                              # the floor
+    # variants A (concat_hist) and B (z_transformer) against base JEPA (pairs of runs not trained yet are skipped)
+    + [f"JEPA_D{k}/c:JEPA_D{k}_{v}/c" for k in (1, 2, 3) for v in ("concat_hist", "z_transformer")]
+    + [f"JEPA_D{k}/yhat_g0_h365:JEPA_D{k}_{v}/yhat_g0_h365" for k in (1, 2, 3) for v in ("concat_hist", "z_transformer")]
+    + [f"JEPA_D{k}_concat_hist/c:JEPA_D{k}_z_transformer/c" for k in (1, 2, 3)]
+    + [f"BERT_D{k}/c:JEPA_D{k}_{v}/c" for k in (1, 2, 3) for v in ("concat_hist", "z_transformer")])
 
 
 def neighbour_overlap(nb_a, nb_b):

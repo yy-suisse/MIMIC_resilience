@@ -28,6 +28,7 @@ and <out>/resilience/scores/metrics_all.csv, all maps together (--collect, also 
 Usage (PowerShell):
   cd C:\\Users\\yy\\Desktop\\codes_PhD\\jepa_mimic\\resilience
   python score.py --embedding JEPA_D3                # every map of the embedding (c and y_hat)
+  python score.py --embedding JEPA_D2_concat_hist JEPA_D2_z_transformer     # variants A and B
   python score.py --embedding bag demo random
   python score.py --embedding JEPA_D3 --map c
   python score.py --collect                          # only rebuild metrics_all.csv

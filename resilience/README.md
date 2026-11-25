@@ -29,6 +29,10 @@ R2 and R3 are independent: the vectors never see a label.
 | JEPA Dk c, no history | JEPA student; gender + recent window (history removed at test time) | cosine |
 | JEPA Dk c | JEPA student; gender + history + recent window (as in training) | cosine |
 | JEPA Dk ŷ | Z(c, Δ = 0, L = 365): expected embedding of the next year | cosine |
+| JEPA Dk concat hist c | option A: [history mean ; recent per-day mean], each half unit length (512) | cosine |
+| JEPA Dk concat hist ŷ | MLP Z on [c, no-history flag, f(Δ), f(L)] | cosine |
+| JEPA Dk Z transformer c | option B: mean of the context tokens (256), as base | cosine |
+| JEPA Dk Z transformer ŷ | cross-attention Z: one query (Δ = 0, L = 365) reads every context token | cosine |
 | bag of codes | concepts of the JEPA context (history + recent), log counts × idf, SVD 256 | cosine |
 | demographics | age, sex, log(1 + h), standardised | euclidean |
 | random | random vectors (sanity check) | cosine |
@@ -36,6 +40,8 @@ R2 and R3 are independent: the vectors never see a label.
 - Context: built by `jepa_data.context_at`, the training rule. Recent window = the 30 days up to T, capped at 512 / 800 / 1,000 tokens (D1 / D2 / D3); history = past diagnoses, drugs and procedures, each once at its last mention, at most 128.
 - The recent window is token for token the same in BERT, JEPA without history and JEPA with history.
 - Vector = mean of the encoder's outputs over the context tokens (gender excluded); stored as float16.
+- The variant (`base`, `concat_hist`, `z_transformer`) is read from the JEPA run's `config.json` and recorded in `info.json`; the context is pooled and Z is run exactly as in training (`context_inputs`, `run_predictor`, `map_vector` of `jepa_model.py`). Spec of the variants: `jepa\README.md`, section Variants.
+- concat hist map: cosine on the two unit halves = ½ (cos of the history halves + cos of the recent halves); a point without history keeps a zero history half (with `--no-history`: only the recent half counts).
 
 ## R3 Labels
 
@@ -130,10 +136,14 @@ Val: AKI 49,555 points (18,176 patients), CKD 55,884 (17,796), sepsis 61,600 (19
 | JEPA D3 c | no | 0.774 (0.77–0.78) | 0.800 (0.79–0.81) | 0.797 (0.79–0.81) | 0.633 (0.61–0.65) |
 | JEPA D1 c | yes | **0.779 (0.77–0.79)** | 0.769 (0.76–0.78) | 0.805 (0.79–0.81) | 0.617 (0.60–0.63) |
 | JEPA D2 c | yes | 0.779 (0.77–0.79) | 0.795 (0.79–0.80) | 0.805 (0.79–0.81) | 0.632 (0.61–0.65) |
-| JEPA D3 c | yes | 0.775 (0.77–0.78) | **0.802 (0.79–0.81)** | 0.799 (0.79–0.81) | 0.640 (0.62–0.66) |
+| JEPA D3 c | yes | 0.775 (0.77–0.78) | 0.802 (0.79–0.81) | 0.799 (0.79–0.81) | 0.640 (0.62–0.66) |
 | JEPA D1 ŷ | yes | 0.773 (0.77–0.78) | 0.767 (0.75–0.78) | 0.799 (0.79–0.81) | 0.618 (0.60–0.64) |
 | JEPA D2 ŷ | yes | 0.776 (0.77–0.78) | 0.799 (0.79–0.81) | 0.800 (0.79–0.81) | 0.637 (0.62–0.66) |
 | JEPA D3 ŷ | yes | 0.769 (0.76–0.78) | 0.795 (0.79–0.80) | 0.793 (0.78–0.80) | 0.630 (0.61–0.65) |
+| JEPA D2 concat hist c | yes | 0.774 (0.77–0.78) | 0.792 (0.78–0.80) | 0.804 (0.79–0.81) | 0.644 (0.63–0.66) |
+| JEPA D2 concat hist ŷ | yes | 0.774 (0.77–0.78) | 0.791 (0.78–0.80) | 0.795 (0.78–0.80) | 0.630 (0.61–0.65) |
+| JEPA D2 Z transformer c | yes | 0.779 (0.77–0.79) | **0.821 (0.81–0.83)** | 0.805 (0.80–0.81) | 0.638 (0.62–0.66) |
+| JEPA D2 Z transformer ŷ | yes | 0.774 (0.77–0.78) | 0.812 (0.80–0.82) | 0.796 (0.79–0.80) | 0.620 (0.60–0.64) |
 | bag of codes | yes | 0.755 (0.75–0.76) | 0.742 (0.73–0.75) | 0.784 (0.78–0.79) | 0.603 (0.59–0.62) |
 | demographics | – | 0.648 (0.64–0.66) | 0.708 (0.70–0.72) | 0.627 (0.62–0.64) | 0.588 (0.57–0.61) |
 | random | – | 0.492 (0.48–0.50) | 0.500 (0.49–0.51) | 0.498 (0.49–0.51) | 0.477 (0.46–0.50) |
@@ -150,11 +160,15 @@ Val: AKI 49,555 points (18,176 patients), CKD 55,884 (17,796), sepsis 61,600 (19
 | JEPA D2 c | no | 0.54 | 0.29 | 0.48 | 0.10 |
 | JEPA D3 c | no | 0.50 | 0.30 | 0.45 | 0.10 |
 | JEPA D1 c | yes | **0.56** | 0.27 | 0.49 | 0.09 |
-| JEPA D2 c | yes | 0.54 | **0.31** | 0.48 | **0.11** |
+| JEPA D2 c | yes | 0.54 | 0.31 | 0.48 | **0.11** |
 | JEPA D3 c | yes | 0.50 | 0.31 | 0.45 | 0.10 |
 | JEPA D1 ŷ | yes | 0.54 | 0.25 | 0.47 | 0.07 |
 | JEPA D2 ŷ | yes | 0.53 | 0.28 | 0.47 | 0.08 |
 | JEPA D3 ŷ | yes | 0.49 | 0.30 | 0.45 | 0.10 |
+| JEPA D2 concat hist c | yes | 0.55 | 0.32 | 0.50 | 0.10 |
+| JEPA D2 concat hist ŷ | yes | 0.53 | 0.29 | 0.47 | 0.08 |
+| JEPA D2 Z transformer c | yes | 0.52 | 0.32 | 0.48 | 0.08 |
+| JEPA D2 Z transformer ŷ | yes | 0.51 | **0.32** | 0.47 | 0.09 |
 | bag of codes | yes | 0.56 | 0.28 | 0.49 | 0.09 |
 | demographics | – | 0.30 | 0.18 | 0.17 | 0.08 |
 | random | – | 0.15 | 0.07 | 0.11 | 0.04 |
@@ -164,6 +178,19 @@ Val: AKI 49,555 points (18,176 patients), CKD 55,884 (17,796), sepsis 61,600 (19
 - BERT ≈ JEPA without history ≈ JEPA with history: within 0.015 AUROC everywhere, with overlapping intervals. ŷ never beats c.
 - D2 / D3 help the lab-defined diseases (CKD: D1 0.76–0.77, D2 / D3 0.79–0.80); D1 is as good for AKI and sepsis.
 - No leakage: train − test AUROC from −0.012 to +0.019 over all maps.
+
+**JEPA variants (D2; spec in `jepa\README.md`, section Variants).** H = 180 in brackets.
+
+| Map c | AKI | CKD | Sepsis | T2D | Coverage |
+| --- | --- | --- | --- | --- | --- |
+| JEPA D2 | 0.779 (0.786) | 0.795 (0.804) | 0.805 (0.810) | 0.632 (0.625) | 0.87–0.92 |
+| concat hist (A) | 0.774 (**0.787**) | 0.792 (0.813) | 0.804 (**0.815**) | 0.644 (**0.645**) | 0.84–0.89 |
+| Z transformer (B) | 0.779 (0.781) | **0.821** (**0.826**) | 0.805 (0.812) | 0.638 (0.621) | 0.88–0.92 |
+
+- Z transformer, CKD: 0.795 → 0.821, intervals apart (0.786–0.805 vs 0.813–0.829); test 0.829, train 0.819. Best map of all for CKD at both horizons; PPV top 5 % CKD 0.32 (ŷ 0.323, best of all). Other diseases equal to JEPA D2; T2D PPV lower (0.085 vs 0.105).
+- concat hist: within ±0.012 of JEPA D2 at H = 365 (T2D +0.012, ties BERT D2); best of all maps at H = 180 for AKI, sepsis and T2D; best sepsis PPV (0.50); coverage 2–4 points lower (cause not checked).
+- ŷ stays at or below c in AUROC for both variants; in PPV it is higher only for the Z transformer, CKD and T2D.
+- A better JEPA objective (pred_ratio 0.672 → 0.659 → 0.638) does not carry over evenly: reading every token helps CKD (repeated creatinine and eGFR in the context), even day pooling helps the short horizon, nothing fixes T2D.
 
 ## R5 Map comparison
 
@@ -199,15 +226,23 @@ J(A, B) = \frac{|C_A \cap C_B|}{|C_A \cup C_B|}
 | BERT D2 vs bag of codes | 0.104 | 0.31 | 0.33 | 0.39 | 0.24 |
 | JEPA D2 vs bag of codes | 0.032 | 0.27 | 0.27 | 0.35 | 0.22 |
 | BERT D2 vs random | 0.000 | 0.07 | 0.09 | 0.09 | 0.14 |
+| JEPA D2 vs concat hist (c) | 0.389 | 0.44 | 0.44 | 0.53 | 0.34 |
+| JEPA D2 vs Z transformer (c) | 0.346 | 0.40 | 0.42 | 0.48 | 0.34 |
+| JEPA D2 vs concat hist (ŷ) | 0.456 | 0.49 | 0.47 | 0.54 | 0.39 |
+| JEPA D2 vs Z transformer (ŷ) | 0.424 | 0.47 | 0.45 | 0.51 | 0.37 |
+| concat hist vs Z transformer (c) | 0.272 | 0.36 | 0.38 | 0.44 | 0.29 |
+| BERT D2 vs concat hist (c) | 0.038 | 0.26 | 0.29 | 0.34 | 0.24 |
+| BERT D2 vs Z transformer (c) | 0.030 | 0.28 | 0.28 | 0.32 | 0.23 |
 
 - JEPA training moved the neighbourhoods further from BERT than bag of codes is from BERT.
+- The two variants keep only 35–39 of JEPA D2's 100 neighbours and 27 of each other's (encoder and Z learn together, so a new Z also gives a new encoder); both stay as far from BERT as JEPA D2 (3–4).
 - The history block changes about a fifth of the neighbours and about 40 % of the candidates.
 - Equal AUROC, different patients: the choice between maps rests on the lists (tested negatives, "not yet", expert review), not on AUROC.
 
 ## Tests (synthetic data, 300 patients)
 
 - Points: the landmark token's day = T in D1, D2, D3; patient lengths match the master table.
-- Vectors = a direct computation one context at a time (difference = float16 rounding); `context_at` leaves training samples unchanged.
+- Vectors = a direct computation one context at a time (difference = float16 rounding); `context_at` leaves training samples unchanged. Same check for the concat hist and Z transformer runs (c and ŷ, max |diff| 1e-4 and 5e-4).
 - Labels: 12 hand-made cases (one per status, boundaries included); every label = a plain-loop recomputation; KDIGO, CKD run, antibiotic runs and ASE on hand cases.
 - Neighbours = brute-force search; r = a direct count; AUROC = scikit-learn; overlap = a brute-force count.
 
@@ -226,6 +261,16 @@ python embed_points.py --bert-run D:\MIMIC\bert_model\D3_min50
 python embed_points.py --baseline bag                                     # also demo, random
 python score.py --embedding JEPA_D1 JEPA_D2 JEPA_D3 JEPA_D1_nohist JEPA_D2_nohist JEPA_D3_nohist BERT_D1 BERT_D2 BERT_D3 bag demo random
 python compare_maps.py
+```
+
+Variants A and B (after `train_jepa.py --variant concat_hist` / `--variant z_transformer`, see `jepa\README.md`):
+
+```
+python embed_points.py --run D:\MIMIC\jepa_model\JEPA_D2_concat_hist                # maps c (512), yhat_g0_h365, yhat_g0_h180
+python embed_points.py --run D:\MIMIC\jepa_model\JEPA_D2_z_transformer              # maps c (256), yhat_g0_h365, yhat_g0_h180
+python embed_points.py --run D:\MIMIC\jepa_model\JEPA_D2_concat_hist --no-history   # optional: JEPA_D2_concat_hist_nohist
+python score.py --embedding JEPA_D2_concat_hist JEPA_D2_z_transformer
+python compare_maps.py                     # default pairs now include the variants (pairs not built yet are skipped)
 ```
 
 Options:

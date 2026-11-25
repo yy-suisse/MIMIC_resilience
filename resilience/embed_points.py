@@ -1,11 +1,16 @@
 """Step R2: one vector per point, for every map compared by the resilience score.
 
-JEPA maps (--run, a JEPA run folder):
+JEPA maps (--run, a JEPA run folder; the variant is read from the run's config.json):
   c                   student encoder on the context at the point's landmark T, built exactly as in training
-                      (gender + history + recent window, jepa_data.context_at), mean over the context tokens
-  yhat_g<g>_h<H>      Z(c, delta = g, L = H): the expected future of (T + g, T + g + H], one map per setting in
-                      resilience_config.yaml (predictions). Every point, reference ones included, goes through
-                      the same Z(., g, H); c and y_hat are never mixed in one neighbour search.
+                      (gender + history + recent window, jepa_data.context_at), pooled as in the variant:
+                        base, z_transformer   mean over the context tokens (dim numbers)
+                        concat_hist           [history mean ; mean of the recent per-day means], each half
+                                              scaled to unit length (2 x dim numbers, see map_vector)
+  yhat_g<g>_h<H>      Z(context, delta = g, L = H): the expected future of (T + g, T + g + H], one map per
+                      setting in resilience_config.yaml (predictions). Z of the variant: the MLP on c (base,
+                      concat_hist + its no-history flag) or the cross-attention query over all context tokens
+                      (z_transformer). Every point, reference ones included, goes through the same Z(., g, H);
+                      c and y_hat are never mixed in one neighbour search.
 
 Ablations, c only (gender + recent window, no history block):
   --run ... --no-history   the JEPA student without its history block (a test-time ablation: trained with it)
@@ -29,6 +34,8 @@ Usage (PowerShell):
   python embed_points.py --run D:\\MIMIC\\jepa_model\\JEPA_D1
   python embed_points.py --run D:\\MIMIC\\jepa_model\\JEPA_D2
   python embed_points.py --run D:\\MIMIC\\jepa_model\\JEPA_D3 --no-history     # saved as JEPA_D3_nohist
+  python embed_points.py --run D:\\MIMIC\\jepa_model\\JEPA_D2_concat_hist     # variant A
+  python embed_points.py --run D:\\MIMIC\\jepa_model\\JEPA_D2_z_transformer   # variant B
   python embed_points.py --bert-run D:\\MIMIC\\bert_model\\D3_min50             # saved as BERT_D3
   python embed_points.py --baseline bag
   python embed_points.py --baseline demo
@@ -49,7 +56,8 @@ sys.path.insert(0, str(HERE.parent / "bert"))
 sys.path.insert(0, str(HERE.parent / "jepa"))
 from bert_data import SPLITS, load_yaml  # noqa: E402
 from jepa_data import SEGMENT, JepaArrays, context_at, pack  # noqa: E402
-from jepa_model import JepaEncoder, Predictor, load_bert, pool_context  # noqa: E402
+from jepa_model import (JepaEncoder, context_inputs, load_bert, make_predictor, map_vector,  # noqa: E402
+                        run_predictor)
 
 
 # ---- landmarks -----------------------------------------------------------------------------------
@@ -89,23 +97,26 @@ def batches_of_contexts(a, pts, jcfg, caps, batch, use_history=True):
 
 # ---- JEPA maps ------------------------------------------------------------------------------------
 def load_jepa(run_dir, checkpoint, device):
-    """Student encoder and predictor Z of a JEPA run, and the run's config."""
+    """Student encoder and predictor Z of a JEPA run, and the run's config (runs before the variants: base)."""
     cfg = json.loads((run_dir / "config.json").read_text())
+    cfg.setdefault("variant", "base")
     bert, _ = load_bert(cfg["bert_run"], cfg["args"]["init_checkpoint"], "cpu")   # architecture; weights below
     jcfg = cfg["jepa"]
     student = JepaEncoder(bert)
-    predictor = Predictor(cfg["dim"], jcfg["time_features"], jcfg["delta_days"]["max"], jcfg["length_days"]["max"])
+    predictor = make_predictor(cfg["dim"], jcfg, cfg["variant"])
     ck = torch.load(run_dir / checkpoint, map_location="cpu", weights_only=False)
     student.load_state_dict(ck["student"])
     predictor.load_state_dict(ck["predictor"])
-    print(f"loaded {run_dir / checkpoint} (step {ck['step']}, best val pred_ratio {ck['best']:.4f})", flush=True)
+    print(f"loaded {run_dir / checkpoint} (variant {cfg['variant']}, step {ck['step']}, "
+          f"best val pred_ratio {ck['best']:.4f})", flush=True)
     return student.to(device).eval(), predictor.to(device).eval(), cfg, ck["step"]
 
 
 @torch.no_grad()
-def embed_split(a, sub, meta, jcfg, caps, encoder, predictor, settings, batch, device, maps, use_history=True):
+def embed_split(a, sub, meta, jcfg, caps, encoder, predictor, settings, batch, device, maps, use_history=True,
+                variant="base"):
     """c and every y_hat of the points of one split, written into maps (rows = point_id).
-    encoder: the JEPA student (forward(b)) or a BERT encoder (same call, no segment embedding)."""
+    encoder: the JEPA student (forward(b)) or a BERT encoder (same call, no segment embedding, variant base)."""
     use_bf16 = device.type == "cuda" and torch.cuda.is_bf16_supported()
     sizes, done, t0 = [], 0, time.time()
     for k, (ids, ctx) in enumerate(batches_of_contexts(a, sub, jcfg, caps, batch, use_history)):
@@ -113,12 +124,14 @@ def embed_split(a, sub, meta, jcfg, caps, encoder, predictor, settings, batch, d
         b = {name: v.to(device, non_blocking=True) for name, v in b.items()}
         with torch.autocast(device.type, dtype=torch.bfloat16, enabled=use_bf16):
             h = encoder(b)
-        c = pool_context(h, b, keys.to(device)).float()
-        maps["c"][ids] = c.cpu().numpy()
-        for name, (gap, horizon) in settings.items():
-            delta = torch.full((len(c),), float(gap), device=device)
-            length = torch.full((len(c),), float(horizon), device=device)
-            maps[name][ids] = predictor(c, delta, length).float().cpu().numpy()
+            c, inputs = context_inputs(variant, h, b, keys.to(device))      # as in training (train_jepa.forward)
+            maps["c"][ids] = map_vector(variant, c.float()).cpu().numpy()
+            one_each = torch.arange(len(c), device=device)                   # one (delta, L) pair per context
+            for name, (gap, horizon) in settings.items():
+                delta = torch.full((len(c),), float(gap), device=device)
+                length = torch.full((len(c),), float(horizon), device=device)
+                y_hat = run_predictor(variant, predictor, c, inputs, one_each, delta, length)
+                maps[name][ids] = y_hat.float().cpu().numpy()
         sizes.append(context_sizes(ids, ctx))
         done += len(ids)
         if k % 200 == 0:
@@ -140,8 +153,9 @@ def jepa_maps(args, tcfg, rcfg, pts, device):
             raise ValueError(f"{name} is outside the trained range of Z (delta <= {jcfg['delta_days']['max']}, "
                              f"L <= {jcfg['length_days']['max']})")
 
-    dim = cfg["dim"]
-    maps = {"c": np.zeros((pts.height, dim), np.float32), **{k: np.zeros((pts.height, dim), np.float32) for k in settings}}
+    dim, variant = cfg["dim"], cfg["variant"]
+    c_dim = 2 * dim if variant == "concat_hist" else dim
+    maps = {"c": np.zeros((pts.height, c_dim), np.float32), **{k: np.zeros((pts.height, dim), np.float32) for k in settings}}
     sizes = []
     for s in SPLITS:
         sub = pts.filter(pl.col("split") == s).sort("p")       # patients in array order: faster reads
@@ -150,8 +164,9 @@ def jepa_maps(args, tcfg, rcfg, pts, device):
         a = JepaArrays(arrays_dir / s, meta, jcfg)
         print(f"{s}: {sub.height:,} points", flush=True)
         sizes.append(embed_split(a, sub, meta, jcfg, caps, student, predictor, settings,
-                                 args.batch or rcfg["embed_batch"], device, maps, use_history))
-    info = {"kind": "jepa", "run": str(run_dir), "checkpoint": args.checkpoint, "step": step, "model": model,
+                                 args.batch or rcfg["embed_batch"], device, maps, use_history, variant))
+    info = {"kind": "jepa", "variant": variant, "run": str(run_dir), "checkpoint": args.checkpoint, "step": step,
+            "model": model,
             "bert_run": cfg["bert_run"], "recent_days": jcfg["recent_days"], "history": use_history,
             "maps": {"c": {"metric": "cosine"},
                      **{k: {"metric": "cosine", "gap": g, "horizon": h} for k, (g, h) in settings.items()}}}

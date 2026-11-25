@@ -125,7 +125,7 @@ y = the teacher's outputs averaged per day (24,900, 24,962, 24,965), then over t
 \theta_{teacher} \leftarrow m\,\theta_{teacher} + (1 - m)\,\theta_{student}, \qquad m: 0.996 \rightarrow 1 \text{ (cosine)}
 ```
 
-- **Pooling**: c = mean over the context tokens (gender and padding excluded); y = mean per day, then over days, then layer norm.
+- **Pooling**: c = mean over the context tokens (gender and padding excluded); y = mean per day, then over days, then layer norm. Variants of c and Z: section Variants below.
 - **Predictor Z**: an MLP (dim + 32 → 2·dim → 2·dim → dim, GELU) on [c, f(Δ), f(L_obs)], with
 
 ```math
@@ -203,7 +203,8 @@ First run (JEPA_D3, step 350): `std_c` 0.25 and `var_term` 0.75, the largest par
 | `--trajectory-config` | `bert\trajectory_columns.yaml` | paths to the data |
 | `--recent-days` | from the config | overrides `recent_days` |
 | `--out-dir` | `D:\MIMIC\jepa_model` | where runs are saved |
-| `--run-name` | `JEPA_<model>_<date>` | run folder |
+| `--variant` | `base` | `base`, `concat_hist` (option A) or `z_transformer` (option B), see Variants |
+| `--run-name` | `JEPA_<model>_<date>` (base), `JEPA_<model>_<variant>` | run folder; an existing run without `--resume` is refused |
 | `--resume` | off | continue the run `--run-name` from `--resume-checkpoint` |
 | `--resume-checkpoint` | `last.pt` | or `best.pt`, to go back to the best step (e.g. after a NaN); TensorBoard hides the curve points logged after that step |
 | `--prepare-only` | off | build the JEPA arrays and stop |
@@ -232,12 +233,119 @@ Each run folder `D:\MIMIC\jepa_model\<run>` holds:
 - One resilience score in each latent space, separately. Never mix c and ŷ in one neighbour search; every point, reference patients included, goes through the same Z(·, g, H); the (g, H) used for scoring must lie inside the trained ranges (Δ ≤ 730, L ≤ 365 days).
 - The teacher (EMA weights) can be tried as an alternative embedder; Z must still take the student's c.
 
+## Variants: how the context reaches Z (`--variant`, implemented 2026-11-24)
+
+**Problem of the base design.** The student's token outputs are averaged into one vector before Z:
+
+```math
+c = \frac{1}{n}\sum_{i=1}^{n} h_i, \qquad \hat y = Z\big(c, f(\Delta), f(L_{obs})\big)
+```
+
+- h_i: student output of context token i (256); n: context tokens (gender and padding excluded); f: sin/cos features of `time_features` (16 + 16 numbers)
+
+- The whole context (history + up to 1,000 recent tokens) is squeezed into 256 numbers before any prediction.
+- About 15 history items against hundreds of recent tokens: the history weighs about 5 % of c (history gain 0.6–1.2 % in training).
+- Dense days dominate c, while the target gives every day the same weight (`pool_target`).
+- Signs: ŷ is much narrower than y (`std_y_hat` 0.53 vs `std_y` 0.98); ŷ never beats c in the resilience score.
+
+The target side does not change in any variant: y = LayerNorm(mean over days of the per-day means of the teacher outputs), loss ‖ŷ − sg(y)‖² / d, VICReg on c, same sampling, same schedule.
+
+| `--variant` | Name | c (anti-collapse terms and map) | Z | Z parameters |
+| --- | --- | --- | --- | --- |
+| `base` | JEPA (runs JEPA_D1–D3) | mean of the context tokens (256) | MLP on [c, f(Δ), f(L_obs)] | 0.54 M |
+| `concat_hist` | option A, **JEPA concat hist** | [history mean ; recent per-day mean] (512) | the same MLP, input 512 + 1 + 32 | 0.67 M |
+| `z_transformer` | option B, **JEPA Z transformer** | mean of the context tokens (256) | 2 cross-attention layers, one query per (Δ, L) | 1.20 M |
+
+### Option A: JEPA concat hist (history and recent days pooled separately)
+
+```math
+c = \Big[\ \frac{1}{|H|}\sum_{i \in H} h_i\ \ ;\ \ \frac{1}{|D|}\sum_{t \in D}\frac{1}{|R_t|}\sum_{i \in R_t} h_i\ \Big] \in \mathbb{R}^{512}, \qquad \hat y = Z\big(c,\ e,\ f(\Delta),\ f(L_{obs})\big)
+```
+
+- H: history tokens (segment 1); D: days of the recent window; R_t: recent tokens (segment 2) of day t; gender (segment 0) is left out
+- [ ; ]: side by side; e: 1 if the context has no history (its history half is then 0), else 0
+- Z: the base MLP (512 + 1 + 32 → 512 → 512 → 256, GELU); output ŷ (256)
+- Anti-collapse terms (var, cov) on the 512 vector c
+- Resilience map `c`: each half scaled to unit length before the cosine (`map_vector`), so neither half dominates; a point without history keeps a zero history half
+
+```math
+\cos(c_i, c_j) \text{ on } \tilde c = \Big[\tfrac{c^{H}}{\lVert c^{H}\rVert}\ ;\ \tfrac{c^{R}}{\lVert c^{R}\rVert}\Big] \;\Rightarrow\; \cos(\tilde c_i,\tilde c_j) = \tfrac{1}{2}\big(\cos(c^H_i,c^H_j) + \cos(c^R_i,c^R_j)\big)
+```
+
+- c^H, c^R: history half and recent half of c (256 each); the equality holds when both points have a history
+
+- Example: a context with 15 history items and 600 recent tokens over 9 days → c^H = mean of 15 vectors, c^R = mean of 9 day means. In base, the 15 items would weigh 15 / 615 ≈ 2 % of c.
+- What it tests: is the problem the weight of the history and of dense days?
+- Code: `pool_context_concat`, `Predictor(..., in_dim=2·dim+1)` with `extra` = e, `map_vector`.
+
+### Option B: JEPA Z transformer (Z reads every context token)
+
+No pooling before Z. For each (Δ, L) pair, a query token reads all context tokens (gender included):
+
+```math
+q^{(0)} = q_0 + \text{MLP}\big([\,f(\Delta)\,;\,f(L_{obs})\,]\big)
+```
+
+```math
+a^{(\ell)}_i = \operatorname{softmax}_i\!\Big(\tfrac{1}{\sqrt{d_h}}\,(\bar q^{(\ell)} W_Q^{(\ell)})\cdot(\bar h_i W_K^{(\ell)})\Big), \qquad u^{(\ell)} = q^{(\ell)} + \Big(\sum_{i=1}^{n} a^{(\ell)}_i\,\bar h_i W_V^{(\ell)}\Big) W_O^{(\ell)}
+```
+
+```math
+q^{(\ell+1)} = u^{(\ell)} + \text{FFN}^{(\ell)}\big(\text{LN}(u^{(\ell)})\big), \qquad \hat y = W_y\,\text{LN}\big(q^{(2)}\big)
+```
+
+- q_0: learned vector (256); MLP: 32 → 256 → 256 (GELU); ℓ = 0, 1 (2 layers); \bar q, \bar h_i: layer-normalised; W_Q, W_K, W_V, W_O, W_y: learned 256 × 256 matrices; 4 heads, d_h = 64; FFN: 256 → 512 → 256 (GELU)
+- a_i: weight of context token i for this question (Σ a_i = 1; padding gets 0 through `key_padding_mask`); only q is updated, the h_i stay fixed (cross-attention)
+- With every a_i = 1/n and no FFN it is the base design: the attention generalises mean pooling, with weights that depend on (Δ, L) and on each token
+- Like `[CLS]` in BERT (a token whose output summarises what it attended to), but conditioned on (Δ, L), placed after the encoder, and trained by the JEPA loss
+- 4 pairs per context = 4 queries on the same h; each sees only its own context
+- c = mean of h is still computed: for the anti-collapse terms and for the map `c`. ŷ = Z(h, g, H) is the second map worth scoring, since it now comes from the whole sequence
+- Example: for Δ = 0, L = 365 the query may put most weight on a few history diagnoses; for Δ = 0, L = 7 on the last days' labs
+- What it tests: is the single-vector squeeze the problem?
+- Code: `context_tokens` (padded contexts × longest context × 256 + mask), `QueryLayer`, `TransformerPredictor`; settings `z_transformer: {layers, heads, ff_mult}` in the config
+
+Checked on synthetic data: concat pooling = direct computation (max |diff| 2e-7); filling the padding with noise does not change ŷ (0.0); one context alone = the same context in a batch (7e-7); ŷ changes when the history is removed; attention weights sum to 1.
+
+### What each variant changes in the code
+
+| Part | concat_hist | z_transformer |
+| --- | --- | --- |
+| `train_jepa.py` | `--variant concat_hist`; c from `pool_context_concat`, flag to Z | `--variant z_transformer`; h → `context_tokens` → `TransformerPredictor(H[pair_ctx], pad[pair_ctx], Δ, L)`; c = `pool_context` |
+| checkpoint, `config.json` | `"variant"` recorded; `--resume` refuses another variant | same |
+| `resilience\embed_points.py` | reads the variant; map `c` = 512 (halves unit length); maps `yhat_*` from its Z | map `c` (mean, 256); maps `yhat_*` from the cross-attention Z |
+| `resilience\score.py` | unchanged (any width) | unchanged |
+| `resilience\compare_maps.py` | default pairs vs JEPA_Dk and BERT_Dk | same, for `c` and `yhat_g0_h365` |
+
+Runs trained before the variants (JEPA_D1–D3) have no `"variant"` in `config.json`: read as `base`.
+
+### Training and comparison plan
+
+- Start from the same BERT `best.pt` as the base run, all other settings unchanged: `JEPA_D2_concat_hist`, `JEPA_D2_z_transformer` first (about 2.5 h each for concat_hist; z_transformer slower, not timed on the GPU yet), then D1 and D3 if they help.
+- Compare with JEPA_D2 on validation: `pred_ratio`, loss per Δ range, history gain (`pred_loss_no_history`), `std_y_hat` vs `std_y`, `rank_c`.
+- Then the resilience score: AUROC and PPV top 5 % per disease, neighbour overlap and candidate Jaccard with JEPA_D2 and BERT_D2 (`compare_maps.py`).
+- Success: ŷ closer to y in spread, a larger history gain, and a map at least as good at the gate; then the candidate lists decide.
+
+### Results (D2, 2026-11-24)
+
+| Run | best pred_ratio (step) | steps/s | std_c | rank_c | history gain | std ŷ / std y |
+| --- | --- | --- | --- | --- | --- | --- |
+| JEPA_D2 (base) | 0.672 (57k) | 8.9 | 0.93 | 212 of 256 | 0.93 % | 0.60 / 0.99 |
+| JEPA_D2_concat_hist | 0.659 (35k) | 8.2 | 0.70 | 364 of 512 | 0.92 % | 0.60 / 0.98 |
+| JEPA_D2_z_transformer | **0.638** (57k) | 6.0 | 0.93 | 214 of 256 | 1.08 % | 0.63 / 0.99 |
+
+- concat hist: better objective from per-day pooling of the recent window; history gain and std ŷ unchanged; std_c lower by construction (zero history half without history).
+- Z transformer: best objective, still falling at 60k; history gain and std ŷ up a little; 33 % slower.
+- Resilience (val, H = 365, AUROC of c): Z transformer CKD 0.795 → 0.821 (intervals apart), other diseases equal; concat hist equal at H = 365, best at H = 180 for AKI, sepsis, T2D. Each keeps 35–39 of JEPA D2's 100 neighbours. Details: `resilience\README.md`, Results and R5.
+- Neither variant reaches "ŷ as spread as y" (0.63 vs 0.99).
+
+Other target ideas noted the same day (not decided): drop the time of day from target tokens (y averages days anyway); add `inputevents` to `target_exclude` (dense ICU drug and fluid rates, like the vitals already excluded).
+
 ## Code
 
 | File | Content |
 | --- | --- |
 | `jepa\jepa_data.py` | episodes and landmarks, JEPA arrays, sample building (landmark, history, recent window, targets), packing, fixed validation batches |
-| `jepa\jepa_model.py` | `load_bert`, student (`JepaEncoder`), teacher (`make_teacher`, `ema_update`), `Predictor`, pooling of c and y, anti-collapse terms, effective rank |
+| `jepa\jepa_model.py` | `load_bert`, student (`JepaEncoder`), teacher (`make_teacher`, `ema_update`), `Predictor`, `TransformerPredictor`, pooling of c and y (`pool_context`, `pool_context_concat`, `context_tokens`), variant helpers (`make_predictor`, `context_inputs`, `run_predictor`, `map_vector`), anti-collapse terms, effective rank |
 | `jepa\train_jepa.py` | arguments, training loop, evaluation, TensorBoard, checkpoints |
 | `config\jepa_config.yaml` | the settings above |
 | `bert\bert_model.py`, `bert\bert_data.py` | the BERT encoder and arrays it starts from (with the two hooks JEPA uses: `forward(b, extra)` and `to_model_rows(..., keep)`) |
@@ -256,6 +364,16 @@ python train_jepa.py --init-run D:\MIMIC\bert_model\D3_min50 --run-name JEPA_D3
 python train_jepa.py --init-run D:\MIMIC\bert_model\D1_min50_20261120_xxxx --run-name JEPA_D1
 python train_jepa.py --init-run D:\MIMIC\bert_model\D2_min50 --run-name JEPA_D2
 ```
+
+**Variants A and B** (same BERT start as JEPA_D2; the run name is set from the variant)
+
+```
+python train_jepa.py --init-run D:\MIMIC\bert_model\D2_min50 --variant concat_hist      # -> JEPA_D2_concat_hist
+python train_jepa.py --init-run D:\MIMIC\bert_model\D2_min50 --variant z_transformer    # -> JEPA_D2_z_transformer
+python train_jepa.py --init-run D:\MIMIC\bert_model\D2_min50 --variant concat_hist --resume    # resume one
+```
+
+If z_transformer runs out of GPU memory, add `--batch-size 16` (a new run name is then advised, e.g. `--run-name JEPA_D2_z_transformer_b16`).
 
 **Change a setting for a new run** (a new `--run-name` each time)
 

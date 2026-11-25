@@ -8,10 +8,15 @@ Steps:
   4. evaluation every --eval-every steps on fixed validation batches, with and without the history block
   5. TensorBoard logs and checkpoints (best.pt, last.pt) in <out-dir>/<run-name>
 
+Variants (--variant, see jepa_model.py): base (c = mean of the context tokens), concat_hist (c = [history mean ;
+recent per-day mean]), z_transformer (Z reads every context token with a (delta, L) query).
+
 Usage (PowerShell), from the jepa folder:
   python train_jepa.py --init-run D:\\MIMIC\\bert_model\\D3_min50 --run-name JEPA_D3
   python train_jepa.py --init-run D:\\MIMIC\\bert_model\\D1_min50_20261120_xxxx --run-name JEPA_D1
   python train_jepa.py --init-run D:\\MIMIC\\bert_model\\D3_min50 --run-name JEPA_D3 --resume
+  python train_jepa.py --init-run D:\\MIMIC\\bert_model\\D2_min50 --variant concat_hist      # JEPA_D2_concat_hist
+  python train_jepa.py --init-run D:\\MIMIC\\bert_model\\D2_min50 --variant z_transformer    # JEPA_D2_z_transformer
   tensorboard --logdir D:\\MIMIC\\jepa_model
 """
 import argparse
@@ -27,8 +32,8 @@ import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 
 from jepa_data import JepaBatches, fixed_batches, load_yaml, prepare_arrays
-from jepa_model import (JepaEncoder, Predictor, effective_rank, ema_update, load_bert, make_teacher, pool_context,
-                        pool_target, variance_covariance)
+from jepa_model import (VARIANTS, JepaEncoder, context_inputs, effective_rank, ema_update, load_bert, make_predictor,
+                        make_teacher, pool_target, run_predictor, variance_covariance)
 
 HERE = Path(__file__).resolve().parent
 
@@ -41,7 +46,9 @@ def parse_args():
     ap.add_argument("--trajectory-config", default=str(HERE.parent / "bert" / "trajectory_columns.yaml"))
     ap.add_argument("--recent-days", type=int, default=None, help="overrides recent_days of the config")
     ap.add_argument("--out-dir", default=r"D:\MIMIC\jepa_model")
-    ap.add_argument("--run-name", default=None, help="default: JEPA_<model>_<date>")
+    ap.add_argument("--variant", default="base", choices=VARIANTS,
+                    help="how the context reaches Z: base (mean), concat_hist, z_transformer")
+    ap.add_argument("--run-name", default=None, help="default: JEPA_<model>_<date> (base) or JEPA_<model>_<variant>")
     ap.add_argument("--resume", action="store_true", help="continue the run --run-name from --resume-checkpoint")
     ap.add_argument("--resume-checkpoint", default="last.pt", help="last.pt, or best.pt to go back to the best step")
     ap.add_argument("--prepare-only", action="store_true", help="only build the arrays, then stop")
@@ -88,12 +95,12 @@ def ema_momentum(step, args, jcfg):
     return end - (end - start) * (math.cos(math.pi * t) + 1) / 2
 
 
-def forward(student, teacher, predictor, batch):
+def forward(student, teacher, predictor, batch, variant):
     """c, y and y_hat of one batch."""
-    c = pool_context(student(batch["ctx"]), batch["ctx"], batch["ctx_key"])
+    c, inputs = context_inputs(variant, student(batch["ctx"]), batch["ctx"], batch["ctx_key"])
     with torch.no_grad():
         y = pool_target(teacher(batch["tgt"]), batch["tgt"], batch["tgt_key"])
-    y_hat = predictor(c[batch["pair_ctx"]], batch["delta"], batch["length"])
+    y_hat = run_predictor(variant, predictor, c, inputs, batch["pair_ctx"], batch["delta"], batch["length"])
     return c, y, y_hat.float()
 
 
@@ -105,7 +112,7 @@ def losses(c, y, y_hat, jcfg):
 
 
 @torch.no_grad()
-def evaluate(student, teacher, predictor, val, val_no_history, jcfg, device, autocast):
+def evaluate(student, teacher, predictor, val, val_no_history, jcfg, device, autocast, variant):
     """Prediction loss against 'always the mean target', per gap range, spreads, rank, and without history."""
     student.eval()
     bins = jcfg["delta_bins"]
@@ -114,7 +121,7 @@ def evaluate(student, teacher, predictor, val, val_no_history, jcfg, device, aut
     for b in val:
         b = to_device(b, device)
         with autocast():
-            c, y, y_hat = forward(student, teacher, predictor, b)
+            c, y, y_hat = forward(student, teacher, predictor, b, variant)
         pred_all.append(((y_hat - y) ** 2).mean(-1))
         base_all.append(((y - y.mean(0)) ** 2).mean(-1))          # always predict the batch's mean target
         deltas.append(b["delta"])
@@ -136,7 +143,7 @@ def evaluate(student, teacher, predictor, val, val_no_history, jcfg, device, aut
     for b in val_no_history:
         b = to_device(b, device)
         with autocast():
-            _, y, y_hat = forward(student, teacher, predictor, b)
+            _, y, y_hat = forward(student, teacher, predictor, b, variant)
         no_hist.append(((y_hat - y) ** 2).mean(-1))
     res["pred_loss_no_history"] = torch.cat(no_hist).mean().item()
     student.train()
@@ -163,7 +170,7 @@ def main():
         meta = json.load(f)
     if meta["vocab_size"] != bert_cfg["vocab_size"]:
         raise ValueError("vocabulary of the arrays and of the BERT encoder differ: check min_patients")
-    print(f"init {model} (min_patients {min_patients}) from {args.init_run}; "
+    print(f"init {model} (min_patients {min_patients}) from {args.init_run}; variant {args.variant}; "
           f"{meta['n_patients']['train']:,} train patients; recent_days {jcfg['recent_days']}", flush=True)
     if args.prepare_only:
         return
@@ -172,7 +179,7 @@ def main():
     student = JepaEncoder(bert).to(device)
     teacher = make_teacher(student).eval()
     dim = bert.tok.embedding_dim
-    predictor = Predictor(dim, jcfg["time_features"], jcfg["delta_days"]["max"], jcfg["length_days"]["max"]).to(device)
+    predictor = make_predictor(dim, jcfg, args.variant).to(device)
     layers = [p for n, p in student.named_parameters()
               if p.requires_grad and (n.startswith("bert.blocks") or n.startswith("bert.final_norm"))]
     others = [p for n, p in student.named_parameters()
@@ -185,12 +192,18 @@ def main():
     autocast = (lambda: torch.autocast("cuda", dtype=torch.bfloat16)) if use_bf16 \
         else (lambda: torch.autocast(device.type, enabled=False))
 
-    run_name = args.run_name or f"JEPA_{model}_{time.strftime('%Y%m%d_%H%M')}"
+    run_name = args.run_name or (f"JEPA_{model}_{time.strftime('%Y%m%d_%H%M')}" if args.variant == "base"
+                                 else f"JEPA_{model}_{args.variant}")
     run_dir = Path(args.out_dir) / run_name
+    if (run_dir / "last.pt").exists() and not args.resume:     # never overwrite a trained run by accident
+        raise FileExistsError(f"{run_dir} already has a checkpoint: add --resume, or choose another --run-name")
     run_dir.mkdir(parents=True, exist_ok=True)
     step, best = 0, float("inf")
     if args.resume and (run_dir / args.resume_checkpoint).exists():
         ck = torch.load(run_dir / args.resume_checkpoint, map_location=device, weights_only=False)
+        saved = ck["config"].get("variant", ck["config"]["args"].get("variant", "base"))
+        if saved != args.variant:
+            raise ValueError(f"{run_dir} was trained with --variant {saved}: resume with the same variant")
         student.load_state_dict(ck["student"])
         teacher.load_state_dict(ck["teacher"])
         predictor.load_state_dict(ck["predictor"])
@@ -199,7 +212,8 @@ def main():
         print(f"resumed {run_dir} from {args.resume_checkpoint} at step {step}", flush=True)
 
     config = {"args": vars(args), "jepa": jcfg, "bert_run": str(args.init_run), "bert_config": bert_cfg,
-              "model": model, "min_patients": min_patients, "arrays": str(arrays_dir), "dim": dim}
+              "model": model, "min_patients": min_patients, "arrays": str(arrays_dir), "dim": dim,
+              "variant": args.variant}
     with open(run_dir / "config.json", "w") as f:
         json.dump(config, f, indent=1, default=str)
     # on resume, curve points logged after the checkpoint's step (e.g. a NaN tail) are hidden in TensorBoard
@@ -227,7 +241,7 @@ def main():
             g["lr"] = g["base_lr"] * factor
         batch = to_device(batch, device)
         with autocast():
-            c, y, y_hat = forward(student, teacher, predictor, batch)
+            c, y, y_hat = forward(student, teacher, predictor, batch, args.variant)
         total, pred, var_term, cov_term = losses(c, y, y_hat, jcfg)
         opt.zero_grad(set_to_none=True)
         if not torch.isfinite(total):     # one bad batch must not turn every weight into NaN: skip it
@@ -262,7 +276,7 @@ def main():
 
         # 4) evaluation and checkpoints
         if step % args.eval_every == 0 or step == args.max_steps:
-            res = evaluate(student, teacher, predictor, val, val_no_history, jcfg, device, autocast)
+            res = evaluate(student, teacher, predictor, val, val_no_history, jcfg, device, autocast, args.variant)
             for k, v in res.items():
                 writer.add_scalar(f"val/{k}", v, step)
             print("  eval step {}: ".format(step) + "  ".join(f"{k} {v:.4f}" for k, v in sorted(res.items())),

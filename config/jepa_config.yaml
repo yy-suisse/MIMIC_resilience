@@ -35,4 +35,5 @@ ema: {start: 0.996, end: 1.0}      # teacher momentum, cosine from start to end 
 lambda_var: 1.0            # variance term on the context vectors (against collapse)
 lambda_cov: 0.04           # covariance term on the context vectors
 time_features: 8           # sine/cosine frequencies for delta and L in the predictor
+z_transformer: {layers: 2, heads: 4, ff_mult: 2}   # Z of --variant z_transformer: cross-attention layers
 delta_bins: [7, 30, 180]   # loss is also logged per gap range: <7, 7-30, 30-180, >=180 days
