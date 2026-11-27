@@ -9,7 +9,8 @@ Steps:
   5. TensorBoard logs and checkpoints (best.pt, last.pt) in <out-dir>/<run-name>
 
 Variants (--variant, see jepa_model.py): base (c = mean of the context tokens), concat_hist (c = [history mean ;
-recent per-day mean]), z_transformer (Z reads every context token with a (delta, L) query).
+recent per-day mean]), z_transformer (Z reads every context token with a (delta, L) query), hist_z (the encoder
+reads [gender + recent window] and [history] separately; Z's query also gets the age at T and a no-history flag).
 
 Usage (PowerShell), from the jepa folder:
   python train_jepa.py --init-run D:\\MIMIC\\bert_model\\D3_min50 --run-name JEPA_D3
@@ -17,6 +18,7 @@ Usage (PowerShell), from the jepa folder:
   python train_jepa.py --init-run D:\\MIMIC\\bert_model\\D3_min50 --run-name JEPA_D3 --resume
   python train_jepa.py --init-run D:\\MIMIC\\bert_model\\D2_min50 --variant concat_hist      # JEPA_D2_concat_hist
   python train_jepa.py --init-run D:\\MIMIC\\bert_model\\D2_min50 --variant z_transformer    # JEPA_D2_z_transformer
+  python train_jepa.py --init-run D:\\MIMIC\\bert_model\\D3_min50 --variant hist_z           # JEPA_D3_hist_z
   tensorboard --logdir D:\\MIMIC\\jepa_model
 """
 import argparse
@@ -47,7 +49,7 @@ def parse_args():
     ap.add_argument("--recent-days", type=int, default=None, help="overrides recent_days of the config")
     ap.add_argument("--out-dir", default=r"D:\MIMIC\jepa_model")
     ap.add_argument("--variant", default="base", choices=VARIANTS,
-                    help="how the context reaches Z: base (mean), concat_hist, z_transformer")
+                    help="how the context reaches Z: base (mean), concat_hist, z_transformer, hist_z")
     ap.add_argument("--run-name", default=None, help="default: JEPA_<model>_<date> (base) or JEPA_<model>_<variant>")
     ap.add_argument("--resume", action="store_true", help="continue the run --run-name from --resume-checkpoint")
     ap.add_argument("--resume-checkpoint", default="last.pt", help="last.pt, or best.pt to go back to the best step")
@@ -226,9 +228,12 @@ def main():
 
     # 3) validation batches (with and without history), then training
     val_dir = arrays_dir / "val"
-    val = fixed_batches(val_dir, meta, jcfg, model, args.batch_size, args.eval_batches)
-    val_no_history = fixed_batches(val_dir, meta, jcfg, model, args.batch_size, args.eval_batches, use_history=False)
-    train = JepaBatches(arrays_dir / "train", meta, jcfg, model, args.batch_size, seed=args.seed + step)
+    split = args.variant == "hist_z"          # history packed as its own sequence
+    val = fixed_batches(val_dir, meta, jcfg, model, args.batch_size, args.eval_batches, split_history=split)
+    val_no_history = fixed_batches(val_dir, meta, jcfg, model, args.batch_size, args.eval_batches, use_history=False,
+                                   split_history=split)
+    train = JepaBatches(arrays_dir / "train", meta, jcfg, model, args.batch_size, seed=args.seed + step,
+                        split_history=split)
     loader = torch.utils.data.DataLoader(train, batch_size=None, num_workers=args.num_workers,
                                          persistent_workers=args.num_workers > 0)
     student.train()

@@ -36,4 +36,5 @@ lambda_var: 1.0            # variance term on the context vectors (against colla
 lambda_cov: 0.04           # covariance term on the context vectors
 time_features: 8           # sine/cosine frequencies for delta and L in the predictor
 z_transformer: {layers: 2, heads: 4, ff_mult: 2}   # Z of --variant z_transformer: cross-attention layers
+hist_z: {layers: 3, heads: 4, ff_mult: 2, max_age_days: 40000}   # Z of --variant hist_z (age at T up to ~110 y)
 delta_bins: [7, 30, 180]   # loss is also logged per gap range: <7, 7-30, 30-180, >=180 days

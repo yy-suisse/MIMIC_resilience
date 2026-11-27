@@ -6,11 +6,14 @@ JEPA maps (--run, a JEPA run folder; the variant is read from the run's config.j
                         base, z_transformer   mean over the context tokens (dim numbers)
                         concat_hist           [history mean ; mean of the recent per-day means], each half
                                               scaled to unit length (2 x dim numbers, see map_vector)
+                        hist_z                recent window only, mean per day then over days (dim numbers)
   yhat_g<g>_h<H>      Z(context, delta = g, L = H): the expected future of (T + g, T + g + H], one map per
                       setting in resilience_config.yaml (predictions). Z of the variant: the MLP on c (base,
                       concat_hist + its no-history flag) or the cross-attention query over all context tokens
                       (z_transformer). Every point, reference ones included, goes through the same Z(., g, H);
                       c and y_hat are never mixed in one neighbour search.
+  query_g<g>_h<H>     hist_z only: Z's final query for (g, H), before its output layer: the one vector that
+                      combines the recent window, the history and the age at T
 
 Ablations, c only (gender + recent window, no history block):
   --run ... --no-history   the JEPA student without its history block (a test-time ablation: trained with it)
@@ -36,6 +39,7 @@ Usage (PowerShell):
   python embed_points.py --run D:\\MIMIC\\jepa_model\\JEPA_D3 --no-history     # saved as JEPA_D3_nohist
   python embed_points.py --run D:\\MIMIC\\jepa_model\\JEPA_D2_concat_hist     # variant A
   python embed_points.py --run D:\\MIMIC\\jepa_model\\JEPA_D2_z_transformer   # variant B
+  python embed_points.py --run D:\\MIMIC\\jepa_model\\JEPA_D3_hist_z          # variant hist_z (adds query maps)
   python embed_points.py --bert-run D:\\MIMIC\\bert_model\\D3_min50             # saved as BERT_D3
   python embed_points.py --baseline bag
   python embed_points.py --baseline demo
@@ -55,7 +59,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "bert"))
 sys.path.insert(0, str(HERE.parent / "jepa"))
 from bert_data import SPLITS, load_yaml  # noqa: E402
-from jepa_data import SEGMENT, JepaArrays, context_at, pack  # noqa: E402
+from jepa_data import SEGMENT, JepaArrays, context_at, pack_contexts  # noqa: E402
 from jepa_model import (JepaEncoder, context_inputs, load_bert, make_predictor, map_vector,  # noqa: E402
                         run_predictor)
 
@@ -120,7 +124,7 @@ def embed_split(a, sub, meta, jcfg, caps, encoder, predictor, settings, batch, d
     use_bf16 = device.type == "cuda" and torch.cuda.is_bf16_supported()
     sizes, done, t0 = [], 0, time.time()
     for k, (ids, ctx) in enumerate(batches_of_contexts(a, sub, jcfg, caps, batch, use_history)):
-        b, keys = pack(ctx, a, jcfg["row_len"], meta["value_id"])
+        b, keys = pack_contexts(ctx, a, jcfg["row_len"], meta["value_id"], split_history=variant == "hist_z")
         b = {name: v.to(device, non_blocking=True) for name, v in b.items()}
         with torch.autocast(device.type, dtype=torch.bfloat16, enabled=use_bf16):
             h = encoder(b)
@@ -130,7 +134,11 @@ def embed_split(a, sub, meta, jcfg, caps, encoder, predictor, settings, batch, d
             for name, (gap, horizon) in settings.items():
                 delta = torch.full((len(c),), float(gap), device=device)
                 length = torch.full((len(c),), float(horizon), device=device)
-                y_hat = run_predictor(variant, predictor, c, inputs, one_each, delta, length)
+                if variant == "hist_z":        # also Z's final query: recent window + history + age in one vector
+                    y_hat, query = run_predictor(variant, predictor, c, inputs, one_each, delta, length, True)
+                    maps[name.replace("yhat", "query")][ids] = query.float().cpu().numpy()
+                else:
+                    y_hat = run_predictor(variant, predictor, c, inputs, one_each, delta, length)
                 maps[name][ids] = y_hat.float().cpu().numpy()
         sizes.append(context_sizes(ids, ctx))
         done += len(ids)
@@ -156,6 +164,8 @@ def jepa_maps(args, tcfg, rcfg, pts, device):
     dim, variant = cfg["dim"], cfg["variant"]
     c_dim = 2 * dim if variant == "concat_hist" else dim
     maps = {"c": np.zeros((pts.height, c_dim), np.float32), **{k: np.zeros((pts.height, dim), np.float32) for k in settings}}
+    if variant == "hist_z":
+        maps.update({k.replace("yhat", "query"): np.zeros((pts.height, dim), np.float32) for k in settings})
     sizes = []
     for s in SPLITS:
         sub = pts.filter(pl.col("split") == s).sort("p")       # patients in array order: faster reads
@@ -170,6 +180,9 @@ def jepa_maps(args, tcfg, rcfg, pts, device):
             "bert_run": cfg["bert_run"], "recent_days": jcfg["recent_days"], "history": use_history,
             "maps": {"c": {"metric": "cosine"},
                      **{k: {"metric": "cosine", "gap": g, "horizon": h} for k, (g, h) in settings.items()}}}
+    if variant == "hist_z":
+        info["maps"].update({k.replace("yhat", "query"): {"metric": "cosine", "gap": g, "horizon": h}
+                             for k, (g, h) in settings.items()})
     return maps, pl.concat(sizes).sort("point_id"), info
 
 

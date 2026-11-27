@@ -40,7 +40,10 @@ DEFAULT_PAIRS = (
     + [f"JEPA_D{k}/c:JEPA_D{k}_{v}/c" for k in (1, 2, 3) for v in ("concat_hist", "z_transformer")]
     + [f"JEPA_D{k}/yhat_g0_h365:JEPA_D{k}_{v}/yhat_g0_h365" for k in (1, 2, 3) for v in ("concat_hist", "z_transformer")]
     + [f"JEPA_D{k}_concat_hist/c:JEPA_D{k}_z_transformer/c" for k in (1, 2, 3)]
-    + [f"BERT_D{k}/c:JEPA_D{k}_{v}/c" for k in (1, 2, 3) for v in ("concat_hist", "z_transformer")])
+    + [f"BERT_D{k}/c:JEPA_D{k}_{v}/c" for k in (1, 2, 3) for v in ("concat_hist", "z_transformer")]
+    # variant hist_z against base JEPA and the Z transformer (c, and its query map against their c)
+    + [f"JEPA_D{k}/c:JEPA_D{k}_hist_z/{m}" for k in (1, 2, 3) for m in ("c", "query_g0_h365")]
+    + [f"JEPA_D{k}_z_transformer/c:JEPA_D{k}_hist_z/{m}" for k in (1, 2, 3) for m in ("c", "query_g0_h365")])
 
 
 def neighbour_overlap(nb_a, nb_b):

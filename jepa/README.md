@@ -203,7 +203,7 @@ First run (JEPA_D3, step 350): `std_c` 0.25 and `var_term` 0.75, the largest par
 | `--trajectory-config` | `bert\trajectory_columns.yaml` | paths to the data |
 | `--recent-days` | from the config | overrides `recent_days` |
 | `--out-dir` | `D:\MIMIC\jepa_model` | where runs are saved |
-| `--variant` | `base` | `base`, `concat_hist` (option A) or `z_transformer` (option B), see Variants |
+| `--variant` | `base` | `base`, `concat_hist` (option A), `z_transformer` (option B) or `hist_z`, see Variants |
 | `--run-name` | `JEPA_<model>_<date>` (base), `JEPA_<model>_<variant>` | run folder; an existing run without `--resume` is refused |
 | `--resume` | off | continue the run `--run-name` from `--resume-checkpoint` |
 | `--resume-checkpoint` | `last.pt` | or `best.pt`, to go back to the best step (e.g. after a NaN); TensorBoard hides the curve points logged after that step |
@@ -338,6 +338,32 @@ Runs trained before the variants (JEPA_D1–D3) have no `"variant"` in `config.j
 - Resilience (val, H = 365, AUROC of c): Z transformer CKD 0.795 → 0.821 (intervals apart), other diseases equal; concat hist equal at H = 365, best at H = 180 for AKI, sepsis, T2D. Each keeps 35–39 of JEPA D2's 100 neighbours. Details: `resilience\README.md`, Results and R5.
 - Neither variant reaches "ŷ as spread as y" (0.63 vs 0.99).
 
+### Variant hist_z: history and static information go to Z (implemented 2026-11-26)
+
+The encoder only ever reads windows of events; the history and the age reach the prediction through Z.
+
+| Part | Input | How |
+| --- | --- | --- |
+| Recent sequence | gender + recent window (labs with bins and values) | student encoder f_θ, as a BERT segment |
+| History sequence | history items (diagnoses, procedures, drugs) | the same f_θ, separate pass (own segment number, so the two never attend to each other), history segment embedding |
+| Z query | f(Δ), f(L_obs), f(age at T), no-history flag | q = q0 + MLP(...) |
+| Z keys | recent tokens + e_recent ; history tokens + e_history ; one learned empty token | 3 cross-attention layers (4 heads, FFN × 2), 1.73 M parameters |
+| Target | future window, bedside sources removed | teacher f_θ̄ (EMA), unchanged |
+
+```math
+q^{(0)} = q_0 + \mathrm{MLP}\big([\,f(\Delta) ;\ f(L_{obs}) ;\ f(\text{age}_T) ;\ \mathbb{1}[\text{no history}]\,]\big), \qquad \hat y = W_y\,\mathrm{LN}\big(q^{(3)}\big)
+```
+
+- q₀: learned starting query; f: sin/cos of log(1 + days) at 8 frequencies; age_T: age at the landmark in days (scaled by `max_age_days` 40,000)
+- the empty token gives attention a place to go when nothing fits; the flag tells Z the history is missing
+- c = recent window pooled like the target (mean per day, then over days): anti-collapse terms and map `c`
+- maps (`embed_points.py`): `c`, `yhat_g0_h365` / `h180`, and `query_g0_h365` / `h180` = Z's final query before its output layer, the one vector that combines recent window, history and age
+- history gain = ŷ with vs without the history sequence: exactly what Z takes from the history
+- code: `split_context`, `pack_contexts` (`jepa_data.py`); `HistZPredictor`, `pool_days`, `history_tokens` (`jepa_model.py`); settings `hist_z: {layers, heads, ff_mult, max_age_days}` in the config
+- checked on synthetic data: recent tokens and c do not change when the history is removed; history tokens = the history encoded alone; ŷ changes with the history only for patients who have one; one context alone = the same context in a batch (5e-7)
+- D3 result (2026-11-27): best pred_ratio 0.677 at 60k (Z transformer D3 0.622 at 57k), plateau since 30k, converged; history gain 1.13 % (largest of all runs; Z transformer D3 0.88 %); std ŷ 0.60; 3.1 steps/s (Z transformer D3 5.1). Resilience (val, H = 365): ties Z transformer D3 in AUROC (CKD 0.834 vs 0.833), best CKD PPV top 5 % (0.358 vs 0.339, within the ±0.03 intervals); details in `resilience\README.md`, Results
+- D2 result (2026-11-27): best pred_ratio 0.688 at 59k (Z transformer D2 0.638 at 57k), still −0.004 per 10k steps at the end (close to, but not fully, converged); history gain 0.43 → 0.96 % (Z transformer D2 1.08 %); std ŷ 0.59 (std y 0.99); 3.95 steps/s, 4.2 h. Resilience (val, H = 365): ties Z transformer D2 in AUROC (CKD 0.817 vs 0.821; test 0.824 vs 0.830); CKD PPV top 5 % 0.337 vs 0.318 on val but 0.356 vs 0.376 on test, so the top-5 % order is not stable
+
 Other target ideas noted the same day (not decided): drop the time of day from target tokens (y averages days anyway); add `inputevents` to `target_exclude` (dense ICU drug and fluid rates, like the vitals already excluded).
 
 ## Code
@@ -371,6 +397,14 @@ python train_jepa.py --init-run D:\MIMIC\bert_model\D2_min50 --run-name JEPA_D2
 python train_jepa.py --init-run D:\MIMIC\bert_model\D2_min50 --variant concat_hist      # -> JEPA_D2_concat_hist
 python train_jepa.py --init-run D:\MIMIC\bert_model\D2_min50 --variant z_transformer    # -> JEPA_D2_z_transformer
 python train_jepa.py --init-run D:\MIMIC\bert_model\D2_min50 --variant concat_hist --resume    # resume one
+```
+
+**Variant hist_z** (D3 and D2 done; D1 optional)
+
+```
+python train_jepa.py --init-run D:\MIMIC\bert_model\D3_min50 --variant hist_z                  # -> JEPA_D3_hist_z
+python train_jepa.py --init-run D:\MIMIC\bert_model\D1_min50_20261120_xxxx --variant hist_z    # -> JEPA_D1_hist_z
+python train_jepa.py --init-run D:\MIMIC\bert_model\D2_min50 --variant hist_z                  # -> JEPA_D2_hist_z
 ```
 
 If z_transformer runs out of GPU memory, add `--batch-size 16` (a new run name is then advised, e.g. `--run-name JEPA_D2_z_transformer_b16`).

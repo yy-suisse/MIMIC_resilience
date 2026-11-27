@@ -14,6 +14,10 @@ Three variants of how the context reaches Z (--variant of train_jepa.py, recorde
   z_transformer  Z = 2 cross-attention layers: one query per (delta, L) pair, built from f(delta), f(L_obs),
                  reads every context token; y_hat = the query's output. c = mean of the tokens is kept
                  for the anti-collapse terms and the resilience map
+  hist_z         the encoder reads [gender + recent window] and [history] as two separate sequences (same
+                 weights); Z = 3 cross-attention layers whose query is built from f(delta), f(L_obs), f(age at T)
+                 and a no-history flag, and reads the recent tokens, the history tokens and one learned empty
+                 token. c = recent window pooled like the target (per day, then over days)
 """
 import copy
 import math
@@ -30,7 +34,7 @@ from bert_model import TrajectoryBert  # noqa: E402
 
 BERT_HEADS = ("head", "concept_out", "quantile_out", "unit_out", "value_out")   # not used by JEPA
 STATIC, HISTORY, RECENT = 0, 1, 2              # values of the segment channel (as SEGMENT in jepa_data.py)
-VARIANTS = ("base", "concat_hist", "z_transformer")
+VARIANTS = ("base", "concat_hist", "z_transformer", "hist_z")
 
 
 def load_bert(run_dir, checkpoint="best.pt", device="cpu"):
@@ -131,6 +135,46 @@ class TransformerPredictor(nn.Module):
         return self.out(q[:, 0])
 
 
+class HistZPredictor(nn.Module):
+    """Z of the variant hist_z: a small transformer whose query reads the recent tokens, the history tokens and
+    one learned empty token (where attention can go when nothing fits).
+
+    q     = q0 + MLP([f(delta), f(L_obs), f(age at T), no-history flag])      one query per (delta, L) pair
+    keys  = [recent tokens + e_recent ; history tokens + e_history ; e_empty]
+    q    <- q + Attention(q, keys);  q <- q + FFN(q)      (layers times)
+    y_hat = Linear(LayerNorm(q))
+    """
+
+    def __init__(self, dim, n_time, max_delta, max_length, max_age, layers=3, heads=4, ff_mult=2):
+        super().__init__()
+        self.n_time, self.max_delta, self.max_length, self.max_age = n_time, max_delta, max_length, max_age
+        self.q0 = nn.Parameter(torch.randn(dim) * 0.02)
+        self.query_mlp = nn.Sequential(nn.Linear(6 * n_time + 1, dim), nn.GELU(), nn.Linear(dim, dim))
+        self.kind = nn.Parameter(torch.randn(2, dim) * 0.02)       # 0 = recent token, 1 = history token
+        self.empty = nn.Parameter(torch.randn(dim) * 0.02)
+        self.layers = nn.ModuleList(QueryLayer(dim, heads, ff_mult) for _ in range(layers))
+        self.out = nn.Sequential(nn.LayerNorm(dim), nn.Linear(dim, dim))
+
+    def forward(self, inputs, pair_ctx, delta, length, return_query=False):
+        """inputs: R, pad_R (recent tokens), H, pad_H (history tokens), age, no_history, one row per context.
+        Returns y_hat, one row per pair (and the final query before the output layer if return_query)."""
+        R, pad_R, H, pad_H = inputs["R"], inputs["pad_R"], inputs["H"], inputs["pad_H"]
+        n = len(R)
+        empty = self.empty.to(R.dtype).expand(n, 1, -1)
+        keys = torch.cat([R + self.kind[0].to(R.dtype), H + self.kind[1].to(R.dtype), empty], dim=1)
+        pad = torch.cat([pad_R, pad_H, torch.zeros(n, 1, dtype=torch.bool, device=R.device)], dim=1)
+        t = torch.cat([time_features(delta, self.max_delta, self.n_time),
+                       time_features(length, self.max_length, self.n_time),
+                       time_features(inputs["age"][pair_ctx], self.max_age, self.n_time),
+                       inputs["no_history"][pair_ctx, None]], dim=-1)
+        q = (self.q0 + self.query_mlp(t))[:, None, :]
+        keys, pad = keys[pair_ctx], pad[pair_ctx]                      # each query reads its own context
+        for layer in self.layers:
+            q = layer(q, keys, pad)
+        y_hat = self.out(q[:, 0])
+        return (y_hat, q[:, 0]) if return_query else y_hat
+
+
 # ---- pooling -------------------------------------------------------------------------------------
 def group_mean(values, keys):
     """Mean of the rows of values per key. Returns (sorted unique keys, means)."""
@@ -177,6 +221,28 @@ def pool_context_concat(h, b, wanted):
     return torch.cat([hist, recent], dim=-1), flag
 
 
+def pool_days(h, b, wanted):
+    """Mean per day, then over the days, of the recent-window tokens of each sample: the pooling of the target,
+    without its layer norm. Variant hist_z: c of the recent window. Only recent tokens: gender and history have
+    no day (age -1), which would shift them to the previous key in the division below."""
+    m = (b["seg"] > 0) & (b["segment"] == RECENT)
+    day_keys, day_means = group_mean(h[m].float(), token_keys(b)[m] * 100_000 + b["age"][m])
+    uniq, means = group_mean(day_means, day_keys // 100_000)
+    return means[torch.searchsorted(uniq, wanted)]
+
+
+def history_tokens(h, b, n_contexts):
+    """Variant hist_z: the history tokens of each context, padded (contexts without history: all padding)."""
+    has = b["hist_key"] >= 0
+    if not has.any():
+        return h.new_zeros(n_contexts, 0, h.shape[-1]), torch.ones(n_contexts, 0, dtype=torch.bool, device=h.device)
+    Hh, pad_h = context_tokens(h, b, b["hist_key"][has])
+    H = Hh.new_zeros(n_contexts, Hh.shape[1], Hh.shape[2])
+    pad = torch.ones(n_contexts, Hh.shape[1], dtype=torch.bool, device=h.device)
+    H[has], pad[has] = Hh, pad_h
+    return H, pad
+
+
 def context_tokens(h, b, wanted):
     """Variant z_transformer: the context tokens of each sample as a padded matrix (gender included).
     Returns H (contexts x longest context x dim) and pad (True = padding), in the order of wanted."""
@@ -205,6 +271,10 @@ def make_predictor(dim, jcfg, variant):
         z = jcfg.get("z_transformer", {})
         return TransformerPredictor(dim, *sizes, layers=z.get("layers", 2), heads=z.get("heads", 4),
                                     ff_mult=z.get("ff_mult", 2))
+    if variant == "hist_z":
+        z = jcfg.get("hist_z", {})
+        return HistZPredictor(dim, *sizes, max_age=z.get("max_age_days", 40000), layers=z.get("layers", 3),
+                              heads=z.get("heads", 4), ff_mult=z.get("ff_mult", 2))
     return Predictor(dim, *sizes)
 
 
@@ -213,6 +283,11 @@ def context_inputs(variant, h, b, wanted):
     if variant == "concat_hist":
         c, flag = pool_context_concat(h, b, wanted)
         return c, {"extra": flag[:, None]}
+    if variant == "hist_z":
+        R, pad_R = context_tokens(h, b, wanted)              # gender + recent window
+        H, pad_H = history_tokens(h, b, len(wanted))
+        return pool_days(h, b, wanted), {"R": R, "pad_R": pad_R, "H": H, "pad_H": pad_H, "age": b["age_T"],
+                                         "no_history": (b["hist_key"] < 0).float()}
     c = pool_context(h, b, wanted)
     if variant == "z_transformer":
         H, pad = context_tokens(h, b, wanted)
@@ -220,8 +295,11 @@ def context_inputs(variant, h, b, wanted):
     return c, {}
 
 
-def run_predictor(variant, predictor, c, inputs, pair_ctx, delta, length):
-    """y_hat of every (context, delta, L) pair; pair_ctx = the context of each pair."""
+def run_predictor(variant, predictor, c, inputs, pair_ctx, delta, length, return_query=False):
+    """y_hat of every (context, delta, L) pair; pair_ctx = the context of each pair.
+    hist_z with return_query: also the final query of Z (the patient vector that combines recent, history, age)."""
+    if variant == "hist_z":
+        return predictor(inputs, pair_ctx, delta, length, return_query=return_query)
     if variant == "z_transformer":
         return predictor(inputs["H"], inputs["pad"], pair_ctx, delta, length)
     extra = inputs["extra"][pair_ctx] if "extra" in inputs else None

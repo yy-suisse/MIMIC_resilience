@@ -5,6 +5,8 @@ Two parts:
                       the landmarks (last token of each episode). One folder per (model, cut-off).
   2. JepaBatches      for each patient: a landmark T, a context (gender + history + recent window) and
                       n_pairs targets (the events of (T + delta, T + delta + L]), packed into rows.
+                      Variant hist_z (split_history): the history block is packed as its own sequence, so the
+                      encoder reads [gender + recent window] and [history] separately (see pack_contexts).
 
 The arrays are the BERT ones (see bert/bert_data.py) plus:
   episode       int32   episode number of each token within its patient (-1 = gender). An admission or an ED
@@ -283,11 +285,43 @@ def pack(items, arrays, row_len, value_id):
     return {k: torch.from_numpy(v) for k, v in t.items()}, torch.tensor(keys)
 
 
+def split_context(ctx):
+    """Variant hist_z: one context -> [gender + recent window] and [history] (None if the patient has none)."""
+    hist = ctx["segment"] == SEGMENT["history"]
+    recent = {k: v[~hist] for k, v in ctx.items()}
+    history = {k: v[hist] for k, v in ctx.items()} if hist.any() else None
+    return recent, history
+
+
+def pack_contexts(contexts, arrays, row_len, value_id, split_history=False):
+    """Pack the contexts of a batch. Returns the tensors and the key of each context (as pack).
+
+    split_history (variant hist_z): each context becomes two sequences that do not attend to each other,
+    [gender + recent window] and [history]. The tensors then also hold, one value per context:
+      hist_key  key of its history sequence (-1 if no history)
+      age_T     age at the landmark T in days (the last token of the context)
+    """
+    if not split_history:
+        return pack(contexts, arrays, row_len, value_id)
+    parts = [split_context(c) for c in contexts]
+    items = [r for r, _ in parts] + [h for _, h in parts if h is not None]
+    b, keys = pack(items, arrays, row_len, value_id)
+    n = len(contexts)
+    has = torch.tensor([h is not None for _, h in parts], dtype=torch.bool)
+    hist_key = torch.full((n,), -1, dtype=torch.long)
+    hist_key[has] = keys[n:]
+    b["hist_key"] = hist_key
+    b["age_T"] = torch.tensor([int(arrays.f["age"][c["idx"][-1]]) for c in contexts], dtype=torch.float32)
+    return b, keys[:n]
+
+
 class JepaBatches(torch.utils.data.IterableDataset):
     """Endless batches: batch_size patients shuffled per epoch, each giving one context and its targets."""
 
-    def __init__(self, folder, meta, jcfg, model, batch_size, seed, shuffle=True, epochs=None, use_history=True):
+    def __init__(self, folder, meta, jcfg, model, batch_size, seed, shuffle=True, epochs=None, use_history=True,
+                 split_history=False):
         super().__init__()
+        self.split_history = split_history
         self.folder, self.meta, self.jcfg = str(folder), meta, jcfg
         self.caps, self.row_len = jcfg["models"][model], jcfg["row_len"]
         self.batch_size, self.seed, self.shuffle, self.epochs = batch_size, seed, shuffle, epochs
@@ -316,7 +350,8 @@ class JepaBatches(torch.utils.data.IterableDataset):
 
     def collate(self, samples, arrays):
         value_id = self.meta["value_id"]
-        ctx, ctx_key = pack([s["context"] for s in samples], arrays, self.row_len, value_id)
+        ctx, ctx_key = pack_contexts([s["context"] for s in samples], arrays, self.row_len, value_id,
+                                     self.split_history)
         pairs = [(i, t) for i, s in enumerate(samples) for t in s["targets"]]
         tgt, tgt_key = pack([t for _, t in pairs], arrays, self.row_len, value_id)
         return {
@@ -329,13 +364,15 @@ class JepaBatches(torch.utils.data.IterableDataset):
         }
 
 
-def fixed_batches(folder, meta, jcfg, model, batch_size, n_batches, use_history=True, seed=12345):
+def fixed_batches(folder, meta, jcfg, model, batch_size, n_batches, use_history=True, seed=12345,
+                  split_history=False):
     """The same validation batches at every evaluation (fixed seed), kept in memory.
 
     With use_history=False the batches hold the same landmarks and targets, only without the history block:
     no random draw depends on the history, so both versions are drawn identically.
     """
-    data = JepaBatches(folder, meta, jcfg, model, batch_size, seed, shuffle=True, epochs=1, use_history=use_history)
+    data = JepaBatches(folder, meta, jcfg, model, batch_size, seed, shuffle=True, epochs=1, use_history=use_history,
+                       split_history=split_history)
     out = []
     for batch in data:
         out.append(batch)

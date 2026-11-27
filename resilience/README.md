@@ -192,6 +192,40 @@ Val: AKI 49,555 points (18,176 patients), CKD 55,884 (17,796), sepsis 61,600 (19
 - ŷ stays at or below c in AUROC for both variants; in PPV it is higher only for the Z transformer, CKD and T2D.
 - A better JEPA objective (pred_ratio 0.672 → 0.659 → 0.638) does not carry over evenly: reading every token helps CKD (repeated creatinine and eGFR in the context), even day pooling helps the short horizon, nothing fixes T2D.
 
+**JEPA variants (D3, 2026-11-27).** AUROC (95 % interval), PPV top 5 % in brackets; validation, H = 365.
+
+| Map | AKI | CKD | Sepsis | T2D |
+| --- | --- | --- | --- | --- |
+| JEPA D3 c | 0.775 (0.50) | 0.802 (0.31) | 0.799 (0.45) | 0.640 (0.10) |
+| Z transformer D3 c | 0.774 (0.48) | 0.833 (0.34) | 0.798 (0.45) | 0.638 (0.09) |
+| Z transformer D3 ŷ | 0.768 (0.48) | 0.817 (0.34) | 0.793 (0.44) | 0.633 (0.08) |
+| hist_z D3 c (recent window only) | **0.776** (0.50) | **0.834** (**0.36**) | **0.804** (0.46) | 0.645 (0.09) |
+| hist_z D3 ŷ | 0.770 (0.51) | 0.818 (0.34) | 0.797 (0.45) | 0.639 (0.10) |
+| hist_z D3 query | 0.768 (0.51) | 0.818 (0.34) | 0.793 (0.46) | **0.648** (0.10) |
+
+- hist_z ties the Z transformer in AUROC (all within the intervals; test CKD 0.840 both). Slightly higher top 5 %: CKD PPV 0.358 vs 0.339 (test 0.378 vs 0.364), but inside each other's intervals (about ±0.03); AKI candidates tested negative 58 % vs 51 %.
+- hist_z c holds no history token, yet CKD +0.032 over JEPA D3 c: the gain comes from training the encoder through a Z that reads tokens one by one, not from the history.
+- ŷ ≈ query, both about 0.016 below c for CKD; query T2D 0.648 on val is 0.605 on test (noise).
+- H = 180, CKD: Z transformer D3 0.838, hist_z D3 0.837.
+- Neighbours: hist_z c shares 37 of 100 with Z transformer D3 c and 28 with JEPA D3 c (candidate Jaccard 0.35–0.46): same AUROC, different patients.
+
+**JEPA variants (D2, hist_z added 2026-11-27).** AUROC, PPV top 5 % in brackets; validation, H = 365.
+
+| Map | AKI | CKD | Sepsis | T2D |
+| --- | --- | --- | --- | --- |
+| JEPA D2 c | 0.779 (0.54) | 0.795 (0.31) | 0.805 (0.48) | 0.632 (0.11) |
+| Z transformer D2 c | 0.779 (0.52) | **0.821** (0.32) | 0.805 (0.48) | 0.638 (0.08) |
+| hist_z D2 c (recent window only) | 0.777 (0.53) | 0.817 (**0.34**) | **0.806** (0.48) | 0.625 (0.08) |
+| hist_z D2 ŷ | 0.775 (0.52) | 0.806 (0.30) | 0.800 (0.48) | **0.650** (0.09) |
+| hist_z D2 query | 0.775 (0.53) | 0.806 (0.32) | 0.796 (0.48) | 0.638 (0.09) |
+
+- hist_z D2 ties Z transformer D2 in AUROC (CKD 0.809–0.826 vs 0.813–0.829; test 0.824 vs 0.830). CKD +0.022 over JEPA D2 c (intervals apart): the token-reading Z lifts CKD in all four runs (Z transformer and hist_z, D2 and D3).
+- Top 5 % not stable: CKD PPV 0.337 vs 0.318 on val, 0.356 vs 0.376 on test; the order flips, so the D3 top-5 % advantage is not confirmed. AKI candidates tested negative 60 % vs 57 % (same direction as D3); CKD 35 % vs 38 %.
+- ŷ T2D 0.650 on val is 0.633 on test (noise, as for the D3 query). D3 vs D2 within hist_z: CKD 0.834 vs 0.817 (the raw value adds about 0.015, as in the Z transformer).
+- H = 180: hist_z D2 c 0.782 / 0.827 / 0.812 / 0.604 (AKI / CKD / sepsis / T2D); CKD between Z transformer D2 (0.826) and hist_z D3 (0.837). Coverage at H = 365: 0.88–0.93.
+- Neighbours: hist_z D2 c shares 38 of 100 with Z transformer D2 c (31 for the query map) and 30 with JEPA D2 c; candidate Jaccard 0.35–0.51. Same picture as D3.
+- Conclusion: AUROC and PPV do not separate the two variants on D2 or D3; the choice needs embedding-quality checks (stability, clinical similarity of neighbours, candidate checks).
+
 ## R5 Map comparison
 
 **Although BERT and JEPA barely differ in AUROC, their latent spaces differ a lot: they share only 3–6 of each point's 100 neighbours, and about 30 % of their candidate patients.**
@@ -271,6 +305,15 @@ python embed_points.py --run D:\MIMIC\jepa_model\JEPA_D2_z_transformer          
 python embed_points.py --run D:\MIMIC\jepa_model\JEPA_D2_concat_hist --no-history   # optional: JEPA_D2_concat_hist_nohist
 python score.py --embedding JEPA_D2_concat_hist JEPA_D2_z_transformer
 python compare_maps.py                     # default pairs now include the variants (pairs not built yet are skipped)
+```
+
+Variant hist_z (after `train_jepa.py --variant hist_z`): also writes the maps `query_g0_h365` and `query_g0_h180` (Z's final query: recent window + history + age at T).
+
+```
+python embed_points.py --run D:\MIMIC\jepa_model\JEPA_D3_hist_z     # maps c, yhat_g0_h365/h180, query_g0_h365/h180
+python embed_points.py --run D:\MIMIC\jepa_model\JEPA_D2_hist_z
+python score.py --embedding JEPA_D3_hist_z JEPA_D2_hist_z
+python compare_maps.py                     # adds JEPA_Dk vs JEPA_Dk_hist_z and JEPA_Dk_z_transformer vs JEPA_Dk_hist_z
 ```
 
 Options:
